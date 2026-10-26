@@ -7,3 +7,6 @@
 pub mod md5;
 pub mod rnd;
 pub mod rng;
+pub mod selftest;
+
+mod os;

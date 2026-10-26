@@ -8,11 +8,13 @@
 //! the master seed. What remains is the seed file itself, the master seed
 //! captured from it, and [`md5_int`], which the trade-route buyer test uses.
 
+use std::error::Error;
+use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::md5;
+use crate::{md5, os};
 
 /// The 128-bit seed loaded from `lib/randseed`, and the serial digest that
 /// legacy draws advance.
@@ -57,13 +59,23 @@ impl LegacyRng {
     ///
     /// # Errors
     ///
-    /// Returns the error if the file cannot be created or written.
-    pub fn save(&self, path: &Path) -> io::Result<()> {
+    /// Returns [`SaveSeedError`] if the file cannot be created. The engine
+    /// treats that as fatal: `save_seed()` prints the error to standard error
+    /// and exits 1, and because it is the first step of `save_db()`, nothing
+    /// else from the turn is written. Like `save_seed()`, a write that fails
+    /// after the file is created is not reported.
+    pub fn save(&self, path: &Path) -> Result<(), SaveSeedError> {
         let mut bytes = [0u8; 16];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(self.digest) {
             chunk.copy_from_slice(&word.to_le_bytes());
         }
-        File::create(path)?.write_all(&bytes)
+        let mut file = File::create(path).map_err(|source| SaveSeedError {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        // fwrite() is unchecked in C.
+        let _ = file.write_all(&bytes);
+        Ok(())
     }
 
     /// The seed as loaded, before any draw advanced it (`rng_master_seed()`).
@@ -80,6 +92,32 @@ impl LegacyRng {
     /// overflows outside that range.
     pub fn rnd(&mut self, low: i32, high: i32) -> i32 {
         reduce_range(&mut self.digest, low, high)
+    }
+}
+
+/// The `randseed` file could not be created.
+///
+/// Displays as `save_seed()`'s report, `couldn't write <path>:<strerror>`.
+#[derive(Debug)]
+pub struct SaveSeedError {
+    path: PathBuf,
+    source: io::Error,
+}
+
+impl fmt::Display for SaveSeedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "couldn't write {}:{}",
+            self.path.display(),
+            os::strerror(&self.source)
+        )
+    }
+}
+
+impl Error for SaveSeedError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.source)
     }
 }
 
@@ -190,6 +228,22 @@ mod tests {
         std::fs::write(&seed, [1, 2, 3, 4, 5]).expect("write seed");
 
         assert_eq!(LegacyRng::load(&seed).master_seed(), [0x0403_0201, 5, 0, 0]);
+
+        std::fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn save_to_a_directory_reports_like_c() {
+        let dir = std::env::temp_dir().join(format!("rhorri-unwritable-{}", std::process::id()));
+        let seed = dir.join("randseed");
+        std::fs::create_dir_all(&seed).expect("create randseed directory");
+
+        let err = rng().save(&seed).expect_err("saving over a directory");
+        assert_eq!(
+            err.to_string(),
+            format!("couldn't write {}:Is a directory", seed.display())
+        );
+        assert!(seed.is_dir(), "randseed is still a directory");
 
         std::fs::remove_dir_all(&dir).expect("remove temp dir");
     }
