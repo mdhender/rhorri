@@ -351,6 +351,13 @@ impl Game {
     fn call_start(&mut self, who: i32, cmd: i32, start: &str) -> Result<i8, NotYetImplemented> {
         match start {
             "v_wait" => Ok(self.v_wait(who)),
+            "v_move" => self.v_move(who),
+            "v_north" => self.v_move_as(who, b"move north"),
+            "v_south" => self.v_move_as(who, b"move south"),
+            "v_east" => self.v_move_as(who, b"move east"),
+            "v_west" => self.v_move_as(who, b"move west"),
+            "v_enter" => self.v_enter(who),
+            "v_exit" => self.v_move_as(who, b"move out"),
             // olympia/c2.c:v_stop: a stop order that wasn't at the head of
             // the queue on day 0 does nothing.
             "v_stop" => Ok(1),
@@ -362,6 +369,7 @@ impl Game {
     fn call_finish(&mut self, who: i32, finish: &str) -> Result<i8, NotYetImplemented> {
         match finish {
             "d_wait" => Ok(self.d_wait(who)),
+            "d_move" => self.d_move(who),
             _ => Err(handler_not_ported(self.command(who).cmd, finish)),
         }
     }
@@ -694,7 +702,7 @@ impl Game {
 /// # Panics
 ///
 /// Panics if `who` isn't in that here list, as C asserts.
-fn here_pos(db: &crate::entity::Db, who: i32) -> i32 {
+pub(crate) fn here_pos(db: &crate::entity::Db, who: i32) -> i32 {
     let l = &db.entity(db.loc(who)).loc_info.here_list;
     l.as_slice()
         .iter()
@@ -836,12 +844,12 @@ mod tests {
     #[test]
     fn a_command_with_no_ported_handler_stops_the_run() {
         let mut g = game(&[1001]);
-        queue_order(&mut g.db, PL, 1001, b"move n");
+        queue_order(&mut g.db, PL, 1001, b"fly n");
         g.initial_command_load();
         g.system.sysclock.day = 1;
         assert_eq!(
             g.daily_command_loop(),
-            Err(NotYetImplemented("move command (v_move)".to_owned()))
+            Err(NotYetImplemented("fly command (v_fly)".to_owned()))
         );
     }
 

@@ -36,7 +36,7 @@ const WAIT_TAGS: [&str; 23] = [
 ];
 
 /// `olympia/u.c:lookup`: the index of `s` in `table`, ignoring case.
-fn lookup(table: &[&str], s: &[u8]) -> Option<i32> {
+pub(crate) fn lookup(table: &[&str], s: &[u8]) -> Option<i32> {
     table
         .iter()
         .position(|t| i_str_eq(s, t.as_bytes()))

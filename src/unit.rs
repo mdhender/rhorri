@@ -12,7 +12,7 @@ use crate::entity::{
 use crate::game::player;
 use crate::game::{Game, NotYetImplemented};
 use crate::loc::is_loc_or_ship;
-use crate::loc::{LOC_PROVINCE, garrison_here, loc_depth, subloc, weather_here};
+use crate::loc::{LOC_PROVINCE, all_char_here, garrison_here, loc_depth, subloc, weather_here};
 use crate::lore::{queue_lore, test_known};
 use crate::swear::{LOY_NPC, LOY_SUMMON};
 
@@ -426,7 +426,7 @@ impl Game {
     ///
     /// Panics if `who` or `item` isn't a valid box, or `qty` is negative,
     /// as C asserts.
-    fn sub_item(&mut self, who: i32, item: i32, qty: i32) -> bool {
+    pub(crate) fn sub_item(&mut self, who: i32, item: i32, qty: i32) -> bool {
         assert!(self.db.valid_box(who), "sub_item: invalid box {who}");
         assert!(self.db.valid_box(item), "sub_item: invalid item {item}");
         assert!(qty >= 0, "sub_item: qty {qty}");
@@ -540,6 +540,186 @@ impl Game {
         if check {
             self.driver.trades_to_check.push(who);
         }
+    }
+}
+
+/// `item_peasant`: what a unit with no noble item weighs as.
+const ITEM_PEASANT: i32 = 10;
+
+/// What a unit or stack weighs and can carry (`struct weights`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Weights {
+    pub animals: i32,
+    /// The total weight of the unit or stack.
+    pub total_weight: i32,
+    /// The weight it can carry walking.
+    pub land_cap: i32,
+    pub land_weight: i32,
+    /// The weight it can carry on horseback.
+    pub ride_cap: i32,
+    pub ride_weight: i32,
+    pub fly_cap: i32,
+    pub fly_weight: i32,
+}
+
+/// `olympia/u.c:add_item_weight`: adds `qty` of `item` to `w`. An item
+/// with a capacity carries (its capacity, or nothing if it is -1) rather
+/// than being carried.
+fn add_item_weight(db: &Db, item: i32, qty: i32, w: &mut Weights) {
+    let it = rp_item(db, item);
+    let field = |f: fn(&Item) -> i16| it.map_or(0, |i| i32::from(f(i)));
+    let wt = field(|i| i.weight) * qty;
+    let lc = field(|i| i.land_cap);
+    let rc = field(|i| i.ride_cap);
+    let fc = field(|i| i.fly_cap);
+
+    if lc != 0 {
+        w.land_cap += lc.max(0) * qty;
+    } else {
+        w.land_weight += wt;
+    }
+    if rc != 0 {
+        w.ride_cap += rc.max(0) * qty;
+    } else {
+        w.ride_weight += wt;
+    }
+    if fc != 0 {
+        w.fly_cap += fc.max(0) * qty;
+    } else {
+        w.fly_weight += wt;
+    }
+    w.total_weight += wt;
+
+    if it.is_some_and(|i| i.animal != 0) {
+        w.animals += qty;
+    }
+}
+
+/// `olympia/u.c:determine_unit_weights`: what the character `who` and
+/// its inventory weigh and can carry.
+///
+/// # Panics
+///
+/// Panics if `who` isn't a character, as C asserts.
+#[must_use]
+pub fn determine_unit_weights(db: &Db, who: i32) -> Weights {
+    assert_eq!(db.kind(who), Kind::CHAR, "determine_unit_weights: {who}");
+    let mut w = Weights::default();
+    let unit_base = match noble_item(db, who) {
+        0 => ITEM_PEASANT,
+        n => n,
+    };
+    add_item_weight(db, unit_base, 1, &mut w);
+    // loop_inv
+    for e in &db.entity(who).items {
+        if db.valid_box(e.item) && e.qty > 0 {
+            add_item_weight(db, e.item, e.qty, &mut w);
+        }
+    }
+    w
+}
+
+/// `olympia/u.c:determine_stack_weights`: what `who` and everyone in
+/// its stack weigh and can carry.
+#[must_use]
+pub fn determine_stack_weights(db: &Db, who: i32) -> Weights {
+    let mut w = determine_unit_weights(db, who);
+    for i in crate::loc::all_here(db, who) {
+        let v = determine_unit_weights(db, i);
+        w.total_weight += v.total_weight;
+        w.land_cap += v.land_cap;
+        w.ride_cap += v.ride_cap;
+        w.fly_cap += v.fly_cap;
+        w.land_weight += v.land_weight;
+        w.ride_weight += v.ride_weight;
+        w.fly_weight += v.fly_weight;
+        w.animals += v.animals;
+    }
+    w
+}
+
+/// `olympia/u.c:count_stack_units`: the characters in `who`'s stack,
+/// counting `who`.
+#[must_use]
+pub fn count_stack_units(db: &Db, who: i32) -> i32 {
+    1 + all_char_here(db, who).len() as i32
+}
+
+/// `olympia/u.c:count_stack_move_nobles`: the nobles in `who`'s stack
+/// that slow its army: `who`, its own faction's units, and any other unit
+/// that is neither an NPC nor a prisoner.
+#[must_use]
+pub fn count_stack_move_nobles(db: &Db, who: i32) -> i32 {
+    let pl = player(db, who);
+    1 + all_char_here(db, who)
+        .into_iter()
+        .filter(|&i| player(db, i) == pl || (!is_npc(db, i) && !is_prisoner(db, i)))
+        .count() as i32
+}
+
+/// `olympia/u.c:count_stack_figures`: the figures in `who`'s stack.
+#[must_use]
+pub fn count_stack_figures(db: &Db, who: i32) -> i32 {
+    count_stack_any(db, who)
+}
+
+/// `olympia/u.c:stack_has_item`: how much of `item` the members of
+/// `who`'s stack in its faction hold.
+#[must_use]
+pub fn stack_has_item(db: &Db, who: i32, item: i32) -> i32 {
+    let pl = player(db, who);
+    all_stack(db, stack_leader(db, who))
+        .into_iter()
+        .filter(|&i| player(db, i) == pl)
+        .map(|i| has_item(db, i, item))
+        .sum()
+}
+
+impl Game {
+    /// `olympia/u.c:stack_sub_item`: takes `qty` of `item` from `who`
+    /// first, then from the friendly members of its stack from the leader
+    /// down. Returns false, taking nothing, if the stack hasn't that many.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stack's holdings change under it, as C asserts.
+    pub fn stack_sub_item(&mut self, who: i32, item: i32, mut qty: i32) -> bool {
+        if stack_has_item(&self.db, who, item) < qty {
+            return false;
+        }
+
+        let n = has_item(&self.db, who, item).min(qty);
+        if n > 0 {
+            qty -= n;
+            self.sub_item(who, item, n);
+        }
+        assert!(qty >= 0, "stack_sub_item: {qty}");
+        if qty == 0 {
+            return true;
+        }
+
+        // Borrow what is needed from friendly stackmates.
+        let pl = player(&self.db, who);
+        for i in all_stack(&self.db, stack_leader(&self.db, who)) {
+            if qty <= 0 {
+                break;
+            }
+            if player(&self.db, i) != pl {
+                continue;
+            }
+            let n = has_item(&self.db, i, item).min(qty);
+            if n > 0 {
+                qty -= n;
+                self.sub_item(i, item, n);
+            }
+        }
+        assert_eq!(qty, 0, "stack_sub_item: stack_has_item lied");
+        true
+    }
+
+    /// `olympia/u.c:autocharge`: `who`'s stack pays `amount` gold.
+    pub fn autocharge(&mut self, who: i32, amount: i32) -> bool {
+        self.stack_sub_item(who, ITEM_GOLD, amount)
     }
 }
 

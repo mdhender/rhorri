@@ -9,15 +9,16 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::cstr::{atoi, fuzzy_eq, i_str_eq, is_white};
-use crate::entity::{Db, Kind, OrderList};
+use crate::entity::{Db, Kind, OrderList, Text};
 use crate::lines::LineReader;
 use crate::os::{make_dir, strerror};
 
 /// The most orders a unit can have queued.
 const MAX_QUEUED: usize = 250;
 
-/// Queues `s` for unit `who` in player `pl`'s orders (`queue_order()`).
-pub fn queue_order(db: &mut Db, pl: i32, who: i32, s: &[u8]) {
+/// `p_order_head()`: unit `who`'s queue in player `pl`'s orders, made
+/// if there is none.
+fn p_order_head(db: &mut Db, pl: i32, who: i32) -> &mut Vec<Text> {
     let orders = &mut db.p_player(pl).orders;
     let i = orders
         .iter()
@@ -29,10 +30,21 @@ pub fn queue_order(db: &mut Db, pl: i32, who: i32, s: &[u8]) {
             });
             orders.len() - 1
         });
-    let list = &mut orders[i].l;
+    &mut orders[i].l
+}
+
+/// Queues `s` for unit `who` in player `pl`'s orders (`queue_order()`).
+pub fn queue_order(db: &mut Db, pl: i32, who: i32, s: &[u8]) {
+    let list = p_order_head(db, pl, who);
     if list.len() < MAX_QUEUED {
         list.push(s.to_vec());
     }
+}
+
+/// Puts `s` at the head of unit `who`'s orders in player `pl`'s orders
+/// (`prepend_order()`). Unlike [`queue_order`], there is no limit.
+pub fn prepend_order(db: &mut Db, pl: i32, who: i32, s: &[u8]) {
+    p_order_head(db, pl, who).insert(0, s.to_vec());
 }
 
 /// `queue()`: queues `s` for unit `who` in its faction's orders.

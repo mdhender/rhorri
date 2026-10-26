@@ -12,26 +12,26 @@
 //! olympia-g3's `doc/claude/rng-streams.md`.
 //!
 //! The bandit ambushes (`hades_attack_check`, `faery_attack_check`, with
-//! `create_hades_bandit` and `create_faery_bandit`) run when a unit enters
-//! a province, and come with the `move` command. The cookie NPCs
+//! `create_hades_bandit` and `create_faery_bandit`) run when a stack
+//! enters a province of Hades or Faery (`move_stack`). The cookie NPCs
 //! (`do_cookie_npc`, `create_peasant_mob`) come with the commands that make
 //! them.
 
 use crate::code::int_to_code;
 use crate::dir::{ExitView, FULL_DIR_S, LAND};
 use crate::entity::{Kind, Subkind};
-use crate::game::Game;
+use crate::game::{Game, NotYetImplemented};
 use crate::input::STATE_DONE;
 use crate::loc::{LOC_BUILD, LOC_PROVINCE, here_list, loc_depth, subloc};
 use crate::order::{queue, top_order};
 use crate::rng::{Stream, Tag};
 use crate::savage::ITEM_SAVAGE;
 use crate::storm::npc_summoner;
-use crate::swear::LOY_SUMMON;
+use crate::swear::{LOY_NPC, LOY_SUMMON};
 use crate::turn::Phase;
 use crate::unit::{
-    SUB_NI, char_alone, char_really_hidden, has_skill, is_npc, is_prisoner, loyal_kind, noble_item,
-    npc_last_dir, npc_program, stack_has_use_key,
+    ITEM_GOLD, SUB_NI, char_alone, char_really_hidden, has_skill, is_npc, is_prisoner, loyal_kind,
+    noble_item, npc_last_dir, npc_program, stack_has_use_key,
 };
 
 /// `TAG_TURN`: the per-turn parent of the `npcs` stream.
@@ -64,6 +64,18 @@ const SUB_UNDEAD: Subkind = Subkind(55);
 const ITEM_PEASANT: i32 = 10;
 /// `item_angry_peasant`.
 const ITEM_ANGRY_PEASANT: i32 = 23;
+/// `item_elf`.
+const ITEM_ELF: i32 = 25;
+/// `item_spirit`.
+const ITEM_SPIRIT: i32 = 26;
+/// `item_corpse`.
+const ITEM_CORPSE: i32 = 31;
+/// `item_skeleton`.
+const ITEM_SKELETON: i32 = 33;
+/// `item_gorgon`.
+const ITEM_GORGON: i32 = 288;
+/// `item_faery`.
+const ITEM_FAERY: i32 = 293;
 /// `sk_transcend_death`.
 pub const SK_TRANSCEND_DEATH: i32 = 911;
 /// `use_faery_stone`: the Faery gate opener.
@@ -317,6 +329,143 @@ impl Game {
         }
 
         queue(&mut self.db, who, b"pillage 1");
+    }
+
+    /// `create_hades_bandit()`: bandits of a random kind that ambush `who`
+    /// entering `where_`. Returns the new unit, or -1 if there is no
+    /// entity number free.
+    fn create_hades_bandit(&mut self, who: i32, where_: i32) -> Result<i32, NotYetImplemented> {
+        let kind = self.hads_bandit_kind(who, where_);
+        let item = match kind {
+            1 => ITEM_SPIRIT,
+            2 => ITEM_CORPSE,
+            3 => ITEM_SAVAGE,
+            4 => ITEM_SKELETON,
+            5 => ITEM_GORGON,
+            _ => unreachable!("hads_bandit_kind {kind}"),
+        };
+        self.create_bandit(item, where_, PROG_HADES_BANDIT)
+    }
+
+    /// `create_faery_bandit()`: faeries or elves that ambush `who`
+    /// entering `where_`, with some gold. Returns the new unit, or -1 if
+    /// there is no entity number free.
+    fn create_faery_bandit(&mut self, who: i32, where_: i32) -> Result<i32, NotYetImplemented> {
+        let kind = self.faer_bandit_kind(who, where_);
+        let item = match kind {
+            1 | 2 => ITEM_FAERY,
+            3 => ITEM_ELF,
+            _ => unreachable!("faer_bandit_kind {kind}"),
+        };
+        let new = self.create_bandit(item, where_, PROG_FAERY_BANDIT)?;
+        if new >= 0 {
+            // TODO(stage 2): wout(where, "%s appear.")
+            let gold = self.faer_bandit_gold(new);
+            self.gen_item(new, ITEM_GOLD, gold);
+        }
+        Ok(new)
+    }
+
+    /// The common part of `create_hades_bandit()` and
+    /// `create_faery_bandit()`: a unit of `item` running program `prog`,
+    /// with its troops.
+    fn create_bandit(
+        &mut self,
+        item: i32,
+        where_: i32,
+        prog: i32,
+    ) -> Result<i32, NotYetImplemented> {
+        let pl = self.system.indep_player;
+        let new = self.new_char(SUB_NI, item, where_, -1, pl, LOY_NPC, 0, None)?;
+        // C sets the break point before checking for -1.
+        if new < 0 {
+            return Ok(-1);
+        }
+        let c = self.db.p_char(new);
+        c.break_point = 0;
+        c.npc_prog = prog as i8;
+
+        let qty = if prog == PROG_HADES_BANDIT {
+            self.hads_bandit_qty(new)
+        } else {
+            self.faer_bandit_qty(new)
+        };
+        self.gen_item(new, item, qty);
+        // TODO(stage 2): wout(where, "%s appear.") (for Faery, after the
+        // troops and before the gold)
+        Ok(new)
+    }
+
+    /// The common tail of the ambush checks: the new bandits wait, ready
+    /// to run their orders at once, and if `retal` they attack `who`.
+    fn ambush(&mut self, new: i32, who: i32, retal: impl FnOnce(&mut Self) -> bool) {
+        queue(&mut self.db, new, b"wait time 0");
+        self.init_load_sup(new); // ready to run commands at once
+        if retal(self) {
+            queue(
+                &mut self.db,
+                new,
+                format!("attack {}", int_to_code(who)).as_bytes(),
+            );
+        }
+    }
+
+    /// `olympia/npc.c:hades_attack_check`: a stack entering a province of
+    /// Hades may be ambushed: six times in a hundred, unless it is an NPC,
+    /// a hidden lone character, or a lone transcender of death.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] if making the bandits reaches
+    /// something not ported.
+    pub fn hades_attack_check(&mut self, who: i32, where_: i32) -> Phase {
+        if self.hads_ambush(who, where_) > 6 {
+            return Ok(());
+        }
+        let db = &self.db;
+        if is_npc(db, who)
+            || db.kind(who) != Kind::CHAR
+            || char_really_hidden(db, who)
+            || (has_skill(db, who, SK_TRANSCEND_DEATH) != 0 && char_alone(db, who))
+        {
+            return Ok(());
+        }
+
+        let new = self.create_hades_bandit(who, where_)?;
+        if new < 0 {
+            return Ok(());
+        }
+        self.ambush(new, who, |g| g.hads_retal(who, where_) == 1);
+        Ok(())
+    }
+
+    /// `olympia/npc.c:faery_attack_check`: a stack entering a province of
+    /// Faery may be ambushed: six times in a hundred, unless it is an NPC,
+    /// a hidden lone character, or carries a Faery stone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] if making the bandits reaches
+    /// something not ported.
+    pub fn faery_attack_check(&mut self, who: i32, where_: i32) -> Phase {
+        if self.faer_ambush(who, where_) > 6 {
+            return Ok(());
+        }
+        let db = &self.db;
+        if is_npc(db, who)
+            || db.kind(who) != Kind::CHAR
+            || char_really_hidden(db, who)
+            || stack_has_use_key(db, who, USE_FAERY_STONE) != 0
+        {
+            return Ok(());
+        }
+
+        let new = self.create_faery_bandit(who, where_)?;
+        if new < 0 {
+            return Ok(());
+        }
+        self.ambush(new, who, |g| g.faer_retal(who, where_) == 1);
+        Ok(())
     }
 
     /// `olympia/npc.c:queue_npc_orders`: queues the NPCs' orders for the

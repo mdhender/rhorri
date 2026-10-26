@@ -596,6 +596,20 @@ pub fn numargs(c: &Command) -> i32 {
     c.parse.len() as i32 - 1
 }
 
+/// `olympia/input.c:cmd_shift`: drops the first argument, shifting the
+/// rest (and their entity numbers) down one, and reads the new eighth.
+pub fn cmd_shift(db: &Db, c: &mut Command) {
+    if c.parse.len() > 1 {
+        c.parse.remove(1);
+    }
+    c.args.copy_within(1.., 0);
+    c.args[7] = if numargs(c) >= 8 {
+        parse_arg(db, c.who, &c.parse[8])
+    } else {
+        0
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

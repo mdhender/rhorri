@@ -265,7 +265,7 @@ pub fn province_has_port_city(db: &Db, where_: i32) -> i32 {
 
 impl Game {
     /// `in_hades()`.
-    fn in_hades(&self, n: i32) -> bool {
+    pub(crate) fn in_hades(&self, n: i32) -> bool {
         region(&self.db, n) == self.system.hades_region
     }
 

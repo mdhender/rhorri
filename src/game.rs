@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 
 use crate::buy::Economy;
 use crate::dir::ExitDir;
+use crate::entity::IList;
 use crate::entity::{Db, Kind, MAX_BOXES};
+use crate::faery::FaeryRng;
 use crate::hades::HadesRng;
 use crate::input::Driver;
 use crate::io;
@@ -73,6 +75,10 @@ pub struct Game {
     pub npc_rng: NpcRng,
     /// The `hads` turn stream; see [`crate::hades`].
     pub hades: HadesRng,
+    /// The `faer` turn stream; see [`crate::faery`].
+    pub faery: FaeryRng,
+    /// The characters flying over the ocean (`olympia/move.c:ocean_chars`).
+    pub ocean_chars: IList,
     /// The `econ` stream as last seeded; see [`crate::buy`].
     pub economy: Economy,
     /// The savage units in the world, as `init_savage_attacks` last counted
@@ -102,6 +108,8 @@ impl Game {
             exitdir: ExitDir::default(),
             npc_rng: NpcRng::default(),
             hades: HadesRng::default(),
+            faery: FaeryRng::default(),
+            ocean_chars: IList::default(),
             economy: Economy::default(),
             num_savages: 0,
         }
@@ -164,7 +172,7 @@ impl Game {
         if let Some((_, step)) = missing.iter().find(|(needed, _)| *needed) {
             return Err(NotYetImplemented((*step).to_owned()));
         }
-        // init_ocean_chars() builds an in-memory list nothing ported uses.
+        self.init_ocean_chars();
 
         self.delete_deadchars();
         self.print_box_usage();
