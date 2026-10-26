@@ -321,7 +321,7 @@ impl Game {
                 // stack n: a dead or missing unit just hangs.
                 7 => {
                     if db.kind(a1) == Kind::CHAR
-                        && held(i32::from(stack_leader(db, who) == stack_leader(db, a1)))
+                        && held(i32::from(wait_leader(db, who) == stack_leader(db, a1)))
                     {
                         return Some(cat(&[
                             &box_name(db, a1),
@@ -333,7 +333,7 @@ impl Game {
                 }
                 // top
                 8 => {
-                    if held(i32::from(stack_leader(db, who) == who)) {
+                    if held(i32::from(wait_leader(db, who) == who)) {
                         return Some(msg(format!("we are{} the stack leader", not_s(not))));
                     }
                 }
@@ -458,6 +458,16 @@ fn at_msg(db: &Db, not: i32, a1: i32) -> Text {
     ])
 }
 
+/// `olympia/c1.c:wait_leader`: the GM player may wait, but
+/// [`stack_leader`] takes only characters. A waiter that is not a character
+/// is in no stack, so it is its own leader.
+fn wait_leader(db: &Db, who: i32) -> i32 {
+    if db.kind(who) != Kind::CHAR {
+        return who;
+    }
+    stack_leader(db, who)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,13 +490,18 @@ mod tests {
 
     /// Checks `line` as a fresh wait for [`WHO`].
     fn check(g: &mut Game, line: &[u8]) -> Option<String> {
+        check_as(g, WHO, line)
+    }
+
+    /// Checks `line` as a fresh wait for `who`.
+    fn check_as(g: &mut Game, who: i32, line: &[u8]) -> Option<String> {
         let mut c = Command {
-            who: WHO,
+            who,
             ..Command::default()
         };
         assert!(crate::command::oly_parse(&g.db, &mut c, line));
-        g.db.entity_mut(WHO).cmd = Some(Box::new(c));
-        g.check_wait_conditions(WHO)
+        g.db.entity_mut(who).cmd = Some(Box::new(c));
+        g.check_wait_conditions(who)
             .map(|m| String::from_utf8(m).unwrap())
     }
 
@@ -604,5 +619,22 @@ mod tests {
             Some("Osswid~[1001] signaled 'GO'")
         );
         assert_eq!(check(&mut g, b"wait not flag go"), None);
+    }
+
+    #[test]
+    fn a_waiting_player_is_its_own_stack_leader() {
+        // olympia-g3 wait-gm-stack: the GM player waits `top` and `stack`.
+        let mut g = game();
+        g.db.set_name(WHO, b"Herald One");
+        assert_eq!(
+            check_as(&mut g, PL, b"wait top").as_deref(),
+            Some("we are the stack leader")
+        );
+        assert_eq!(check_as(&mut g, PL, b"wait not top"), None);
+        assert_eq!(check_as(&mut g, PL, b"wait stack 1001"), None);
+        assert_eq!(
+            check_as(&mut g, PL, b"wait not stack 1001").as_deref(),
+            Some("Herald One~[1001] is not stacked with us.")
+        );
     }
 }
