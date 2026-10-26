@@ -123,7 +123,7 @@ impl Game {
             _ => {}
         }
 
-        self.init_load_sup(new); // ready to run commands at once
+        self.init_load_sup(new)?; // ready to run commands at once
         Ok(true)
     }
 

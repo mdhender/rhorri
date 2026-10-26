@@ -398,9 +398,9 @@ impl Game {
 
     /// The common tail of the ambush checks: the new bandits wait, ready
     /// to run their orders at once, and if `retal` they attack `who`.
-    fn ambush(&mut self, new: i32, who: i32, retal: impl FnOnce(&mut Self) -> bool) {
+    fn ambush(&mut self, new: i32, who: i32, retal: impl FnOnce(&mut Self) -> bool) -> Phase {
         queue(&mut self.db, new, b"wait time 0");
-        self.init_load_sup(new); // ready to run commands at once
+        self.init_load_sup(new)?; // ready to run commands at once
         if retal(self) {
             queue(
                 &mut self.db,
@@ -408,6 +408,7 @@ impl Game {
                 format!("attack {}", int_to_code(who)).as_bytes(),
             );
         }
+        Ok(())
     }
 
     /// `olympia/npc.c:hades_attack_check`: a stack entering a province of
@@ -435,8 +436,7 @@ impl Game {
         if new < 0 {
             return Ok(());
         }
-        self.ambush(new, who, |g| g.hads_retal(who, where_) == 1);
-        Ok(())
+        self.ambush(new, who, |g| g.hads_retal(who, where_) == 1)
     }
 
     /// `olympia/npc.c:faery_attack_check`: a stack entering a province of
@@ -464,8 +464,7 @@ impl Game {
         if new < 0 {
             return Ok(());
         }
-        self.ambush(new, who, |g| g.faer_retal(who, where_) == 1);
-        Ok(())
+        self.ambush(new, who, |g| g.faer_retal(who, where_) == 1)
     }
 
     /// `olympia/npc.c:queue_npc_orders`: queues the NPCs' orders for the

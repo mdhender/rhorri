@@ -163,7 +163,7 @@ impl Game {
         }
 
         queue(&mut self.db, new, b"wait time 0");
-        self.init_load_sup(new); // ready to run commands at once
+        self.init_load_sup(new)?; // ready to run commands at once
         Ok(())
     }
 

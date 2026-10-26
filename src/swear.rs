@@ -71,7 +71,7 @@ impl Game {
         };
 
         if old_pl != 0 && old_pl != new_pl {
-            self.flush_unit_orders(old_pl, who);
+            self.flush_unit_orders(old_pl, who)?;
             self.interrupt_order(who)?;
             // clear_all_att()
             if let Some(d) = self.db.get_mut(who).and_then(|b| b.disp.as_deref_mut()) {
@@ -104,7 +104,7 @@ impl Game {
             units.append(who);
             units.sort();
 
-            self.init_load_sup(who); // load the command from the new owner
+            self.init_load_sup(who)?; // load the command from the new owner
             self.touch_loc(who);
         }
 

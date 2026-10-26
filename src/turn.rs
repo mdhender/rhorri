@@ -93,7 +93,7 @@ impl Game {
 
         self.init_wait_list();
         self.init_collect_list();
-        self.initial_command_load();
+        self.initial_command_load()?;
         self.queue_npc_orders()?;
         self.ping_garrisons();
         self.check_token_units()?; // "XXX/NOTYET -- temp fix" in C

@@ -9,8 +9,9 @@
 //! load queue of its priority; `do_command` runs the start routine and moves
 //! it to the run queue; `finish_command` counts down its days, calls the
 //! finish routine and, when it is done, loads the next order. A unit with no
-//! orders left is `STATE_DONE`, and one whose order doesn't parse is
-//! `STATE_ERROR`, which no queue holds (playbymail/olympia-g3#248).
+//! orders left is `STATE_DONE`. An order that doesn't parse is set to
+//! `STATE_ERROR` and failed by `do_command` at once, which loads the next
+//! one (`olympia/input.c:load_command`); no command stays in `STATE_ERROR`.
 //!
 //! Each day `start_phase` drains the load queues, lowest priority number
 //! first, and `evening_phase` gives each running command its daily finish
@@ -165,13 +166,20 @@ impl Game {
         Some(order)
     }
 
-    /// `load_command()`: loads `who`'s next order into its command and
-    /// sets its state: `STATE_LOAD`, `STATE_ERROR` if the order doesn't
-    /// parse, or `STATE_DONE` if there is none. Returns false for none.
-    fn load_command(&mut self, who: i32) -> bool {
+    /// `olympia/input.c:load_command`: loads `who`'s next order into its
+    /// command and sets its state: `STATE_LOAD`, or `STATE_DONE` if there is
+    /// none. An order that doesn't parse is set to `STATE_ERROR` and passed
+    /// straight to `do_command`, which fails it and loads the next order.
+    /// Returns whether a command is left in `STATE_LOAD`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] for something not ported that
+    /// `do_command` reaches after a bad order.
+    fn load_command(&mut self, who: i32) -> Result<bool, NotYetImplemented> {
         let Some(buf) = self.get_command(who) else {
             self.set_state(who, STATE_DONE, 0);
-            return false;
+            return Ok(false);
         };
 
         // oly_parse() reads the database (for `garrison`), never this
@@ -189,21 +197,26 @@ impl Game {
             c.poll = ent.poll as i8;
             c.days_executing = 0;
         } else {
+            // No queue holds STATE_ERROR, so the bad order is reported now:
+            // do_command fails it, and command_done loads the next order.
             self.set_state(who, STATE_ERROR, 0);
+            self.do_command(who)?;
+            return Ok(self.command(who).state == STATE_LOAD);
         }
-        true
+        Ok(true)
     }
 
     /// `command_done()`: the command is over; loads the next one. If that
     /// one has a lower priority number, `start_phase` goes back for it.
-    fn command_done(&mut self, who: i32) {
+    fn command_done(&mut self, who: i32) -> Phase {
         // `immediate` mode isn't ported.
-        if self.load_command(who) {
+        if self.load_command(who)? {
             let pri = i32::from(self.command(who).pri);
             if pri < self.driver.cur_pri {
                 self.driver.cur_pri = pri;
             }
         }
+        Ok(())
     }
 
     /// `finish_command()`: a running command's daily check. Counts down its
@@ -218,7 +231,7 @@ impl Game {
         assert!(self.db.valid_box(who), "finish_command: invalid box {who}");
 
         if self.db.kind(who) == Kind::DEADCHAR {
-            self.command_done(who);
+            self.command_done(who)?;
             return Ok(0);
         }
 
@@ -249,7 +262,7 @@ impl Game {
 
         let c = self.command(who);
         if c.state == STATE_RUN && (c.status == 0 || c.wait == 0) {
-            self.command_done(who);
+            self.command_done(who)?;
         }
         Ok(self.command(who).status)
     }
@@ -306,6 +319,8 @@ impl Game {
 
         if state == STATE_ERROR {
             // TODO(stage 2): out(who, "Unrecognized command.")
+            // C also counts `(unrecognized)` as rejected for --coverage
+            // (coverage_count(0, COV_REJECTED)), which isn't ported.
             self.command(who).status = 0;
         } else if !self.check_allow(who, ent.allow) {
             self.command(who).status = 0;
@@ -330,7 +345,7 @@ impl Game {
 
         let c = self.command(who);
         if c.status == 0 {
-            self.command_done(who);
+            self.command_done(who)?;
         } else if c.wait == 0 && c.state == STATE_RUN {
             let status = self.finish_command(who)?;
             self.command(who).status = status;
@@ -385,11 +400,16 @@ impl Game {
     /// `init_load_sup()`: puts `who`'s command back on its queue, or loads
     /// its first order, giving it a command structure if it has none.
     ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] for something not ported that a bad
+    /// first order reaches (see `load_command`).
+    ///
     /// # Panics
     ///
     /// Panics on a command in `STATE_ERROR` or an unknown state, as C
     /// asserts.
-    pub fn init_load_sup(&mut self, who: i32) {
+    pub fn init_load_sup(&mut self, who: i32) -> Phase {
         let c = self.db.entity_mut(who).cmd.get_or_insert_with(|| {
             Box::new(Command {
                 who,
@@ -404,23 +424,25 @@ impl Game {
             STATE_LOAD => self.driver.load_q[pri as usize].push(who),
             STATE_RUN => self.driver.run_q.push(who),
             STATE_DONE => {
-                self.load_command(who);
+                self.load_command(who)?;
             }
             _ => panic!("init_load_sup: {who} has command state {state}"),
         }
+        Ok(())
     }
 
     /// `initial_command_load()`: queues every character's command, then
     /// every player's.
-    pub(crate) fn initial_command_load(&mut self) {
+    pub(crate) fn initial_command_load(&mut self) -> Phase {
         for kind in [Kind::CHAR, Kind::PLAYER] {
             let mut i = self.db.kind_first(kind);
             while i > 0 {
                 let next = self.db.kind_next(i);
-                self.init_load_sup(i);
+                self.init_load_sup(i)?;
                 i = next;
             }
         }
+        Ok(())
     }
 
     /// The characters, in kind-chain order, read as `loop_char` does.
@@ -646,7 +668,7 @@ impl Game {
                 let status = self.call_interrupt(who, interrupt)?;
                 self.command(who).status = status;
             }
-            self.command_done(who);
+            self.command_done(who)?;
             assert_ne!(self.command(who).state, STATE_RUN);
         }
         Ok(())
@@ -681,9 +703,13 @@ impl Game {
 
     /// `olympia/order.c:flush_unit_orders`: drops every order queued for
     /// `who` in player `pl`'s orders, and a loaded command of `pl`'s unit.
-    pub fn flush_unit_orders(&mut self, pl: i32, who: i32) {
+    ///
+    /// # Errors
+    ///
+    /// Passes on [`NotYetImplemented`] from `command_done`.
+    pub fn flush_unit_orders(&mut self, pl: i32, who: i32) -> Phase {
         if self.db.get(who).is_none() {
-            return;
+            return Ok(());
         }
         while top_order(&self.db, pl, who).is_some() {
             pop_order(&mut self.db, pl, who);
@@ -691,8 +717,9 @@ impl Game {
         if player(&self.db, who) == pl
             && self.rp_command(who).is_some_and(|c| c.state == STATE_LOAD)
         {
-            self.command_done(who);
+            self.command_done(who)?;
         }
+        Ok(())
     }
 }
 
@@ -766,7 +793,7 @@ mod tests {
         let mut g = game(&[1001, 1002]);
         queue_order(&mut g.db, PL, 1001, b"wait time 2");
         queue_order(&mut g.db, PL, 1001, b"move n");
-        g.initial_command_load();
+        g.initial_command_load().unwrap();
 
         assert_eq!(state(&g, 1001), (STATE_LOAD, g.cmd_wait, -1));
         assert_eq!(orders_left(&g, 1001), 1);
@@ -784,7 +811,7 @@ mod tests {
         let mut g = game(&[1001]);
         queue_order(&mut g.db, PL, 1001, b"wait time 2");
         queue_order(&mut g.db, PL, 1001, b"wait time 1");
-        g.initial_command_load();
+        g.initial_command_load().unwrap();
 
         run_days(&mut g, 1, 1);
         let c = g.rp_command(1001).unwrap();
@@ -817,7 +844,7 @@ mod tests {
         queue_order(&mut g.db, PL, 1001, b"wait");
         queue_order(&mut g.db, PL, 1001, b"wait bogus");
         queue_order(&mut g.db, PL, 1001, b"wait time 9");
-        g.initial_command_load();
+        g.initial_command_load().unwrap();
         run_days(&mut g, 1, 1);
         // `wait day 1` holds, `wait` fails for want of a condition, and
         // `wait bogus` ends on its unknown condition: all on day 1.
@@ -827,25 +854,38 @@ mod tests {
     }
 
     #[test]
-    fn an_unrecognized_order_leaves_the_unit_stuck() {
+    fn an_unrecognized_order_fails_at_once_and_the_next_one_loads() {
         let mut g = game(&[1001]);
         queue_order(&mut g.db, PL, 1001, b"bogus");
+        queue_order(&mut g.db, PL, 1001, b"glorp 5");
         queue_order(&mut g.db, PL, 1001, b"wait time 1");
-        g.initial_command_load();
-        assert_eq!(state(&g, 1001), (STATE_ERROR, 0, 0));
+        g.initial_command_load().unwrap();
+        // Both bad orders fail on day 0, and the wait loads behind them.
+        assert_eq!(state(&g, 1001), (STATE_LOAD, g.cmd_wait, -1));
+        assert_eq!(g.driver.load_q[1], [1001]);
+        assert_eq!(orders_left(&g, 1001), 0);
+        run_days(&mut g, 1, 1);
+        assert_eq!(state(&g, 1001).0, STATE_DONE);
+    }
+
+    #[test]
+    fn an_unrecognized_order_after_a_command_loads_the_one_after_it() {
+        let mut g = game(&[1001]);
+        queue_order(&mut g.db, PL, 1001, b"wait time 1");
+        queue_order(&mut g.db, PL, 1001, b"bogus");
+        g.initial_command_load().unwrap();
+        run_days(&mut g, 1, 1);
+        // The bad order fails when the wait ends; the queue runs dry.
+        assert_eq!(state(&g, 1001).0, STATE_DONE);
+        assert_eq!(orders_left(&g, 1001), 0);
         assert!(g.driver.load_q.iter().all(Vec::is_empty));
-        run_days(&mut g, 1, 30);
-        // No queue holds a STATE_ERROR command, so the next order never
-        // loads, as in C.
-        assert_eq!(state(&g, 1001).0, STATE_ERROR);
-        assert_eq!(orders_left(&g, 1001), 1);
     }
 
     #[test]
     fn a_command_with_no_ported_handler_stops_the_run() {
         let mut g = game(&[1001]);
         queue_order(&mut g.db, PL, 1001, b"fly n");
-        g.initial_command_load();
+        g.initial_command_load().unwrap();
         g.system.sysclock.day = 1;
         assert_eq!(
             g.daily_command_loop(),
@@ -860,7 +900,7 @@ mod tests {
         queue_order(&mut g.db, PL, PL, b"wait time 1");
         queue_order(&mut g.db, PL, PL, b"stop");
         queue_order(&mut g.db, PL, PL, b"wait time 2");
-        g.initial_command_load();
+        g.initial_command_load().unwrap();
         g.process_player_orders().unwrap();
         // begin has no start routine and wait isn't allowed to a player;
         // stop is, and finishes at once. All of them ran on day 0.
@@ -886,7 +926,7 @@ mod tests {
         queue_order(&mut g.db, PL, 1001, b"stop");
         queue_order(&mut g.db, PL, 1001, b"wait time 1");
         g.init_wait_list();
-        g.initial_command_load();
+        g.initial_command_load().unwrap();
         assert_eq!(g.driver.wait_list, [1001]);
         assert_eq!(g.driver.run_q, [1001]);
 
@@ -908,7 +948,7 @@ mod tests {
         g.db.p_char(1004).unit_lord = PL;
         g.db.set_where(1004, 1003);
         for who in [1001, 1002, 1003, 1004] {
-            g.init_load_sup(who);
+            g.init_load_sup(who).unwrap();
             g.set_state(who, STATE_LOAD, 1);
             g.command(who).pri = 1;
         }
@@ -929,7 +969,7 @@ mod tests {
     fn set_state_moves_between_queues() {
         let mut g = game(&[1001, 1002]);
         for who in [1001, 1002] {
-            g.init_load_sup(who);
+            g.init_load_sup(who).unwrap();
         }
         g.set_state(1001, STATE_LOAD, 3);
         g.command(1001).pri = 3;
