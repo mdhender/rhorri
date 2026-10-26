@@ -174,7 +174,7 @@ dependencies = [
 
 [[package]]
 name = "rhorri"
-version = "0.14.7-beta"
+version = "0.14.8-beta"
 dependencies = [
  "chrono",
 ]

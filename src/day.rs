@@ -185,21 +185,17 @@ impl Game {
     }
 
     /// `olympia/day.c:near_rocky_coast`: 0 if `where_` isn't ocean, 1 if
-    /// it borders land, 2 if a dangerous coast, 3 if open sea.
-    ///
-    /// C tests `subkind(l[i]->destination == sub_mountain)`, the subkind
-    /// of box 0 or 1 rather than of the destination, so a mountain coast
-    /// is never found dangerous; this does the same
-    /// (playbymail/olympia-g3#254).
+    /// it borders land, 2 if a dangerous (mountain) coast, 3 if open sea.
+    /// The first mountain among the NSEW neighbors returns 2 at once.
     fn near_rocky_coast(&self, where_: i32) -> i32 {
         if self.db.subkind(where_) != Subkind::OCEAN {
             return 0;
         }
         let mut ret = 3;
         for e in self.exits_from_loc_nsew(0, where_) {
-            if self.db.subkind(e.destination) != Subkind::OCEAN {
-                let n = i32::from(e.destination == i32::from(Subkind::MOUNTAIN.0));
-                if self.db.subkind(n) != Subkind::default() {
+            let sk = self.db.subkind(e.destination);
+            if sk != Subkind::OCEAN {
+                if sk == Subkind::MOUNTAIN {
                     return 2;
                 }
                 ret = 1;
