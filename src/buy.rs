@@ -453,13 +453,12 @@ impl Game {
         Ok(())
     }
 
-    /// `opium_market_delta()`: a city's opium addiction rises when it
-    /// bought all it would last month and falls when it bought none, and
-    /// sets what it will consume this month.
+    /// `olympia/buy.c:opium_market_delta`: a city's opium addiction rises
+    /// when it bought all it would last month and falls when it bought
+    /// none, and sets what it will consume this month.
     ///
-    /// `find_trade()` passes over a trade with nothing left, so a city that
-    /// bought all its opium is never found to have, and its addiction
-    /// never rises; C does the same.
+    /// The city's first opium buy is looked up on its own trade list, not
+    /// with `find_trade()`, which passes over a sold-out trade.
     ///
     /// # Panics
     ///
@@ -467,12 +466,15 @@ impl Game {
     /// level is out of range when read, which C would read past its table.
     fn opium_market_delta(&mut self, where_: i32) {
         assert_eq!(self.db.subkind(where_), Subkind::CITY, "opium_market_delta");
-        let found = find_trade(&self.db, where_, BUY, ITEM_OPIUM)
-            .map(|ix| self.db.entity(where_).trades[ix].qty);
+        let found = self
+            .db
+            .entity(where_)
+            .trades
+            .iter()
+            .find(|t| t.kind == BUY && t.item == ITEM_OPIUM)
+            .map(|t| t.qty);
         let p = self.db.p_subloc(where_);
         if let Some(qty) = found {
-            // Dead: find_trade skips sold-out trades
-            // (playbymail/olympia-g3#252).
             if qty < 1 {
                 p.opium_econ += 1;
             } else if qty == opium_data(p.opium_econ).0 {
@@ -777,6 +779,24 @@ mod tests {
         assert_eq!(g.db.entity(CITY).subloc.as_ref().unwrap().opium_econ, 2);
         let t = g.db.entity(CITY).trades[1];
         assert_eq!((t.kind, t.qty, t.cost, t.cloak), (CONSUME, 37, 18, 1));
+    }
+
+    #[test]
+    fn opium_addiction_rises_when_the_city_sold_out() {
+        let mut g = market();
+        g.db.alloc_box(ITEM_OPIUM, Kind::ITEM, Subkind::default());
+        g.db.entity_mut(CITY).trades.push(Trade {
+            who: CITY,
+            kind: BUY,
+            item: ITEM_OPIUM,
+            qty: 0,
+            cost: 17,
+            ..Trade::default()
+        });
+        g.opium_market_delta(CITY);
+        assert_eq!(g.db.entity(CITY).subloc.as_ref().unwrap().opium_econ, 1);
+        let t = g.db.entity(CITY).trades[1];
+        assert_eq!((t.kind, t.qty, t.cost, t.cloak), (CONSUME, 28, 17, 1));
     }
 
     #[test]
