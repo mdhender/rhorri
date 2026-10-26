@@ -18,20 +18,23 @@
 
 use crate::check::{all_stack, stack_leader, stack_parent};
 use crate::command::{cmd_shift, numargs, oly_parse};
+use crate::damage::ITEM_HOUND;
 use crate::dir::{DIR_IN, DIR_OUT, ExitView, FULL_DIR_S};
 use crate::entity::{Db, Kind, Subkind};
+use crate::enty::{ESC_MOVE, ESC_WEEKLY};
 use crate::game::{Game, NotYetImplemented, player};
 use crate::input::here_pos;
 use crate::loc::{
-    LOC_BUILD, LOC_PROVINCE, LOC_REGION, all_char_here, building_owner, loc_depth, region, subloc,
+    LOC_BUILD, LOC_PROVINCE, LOC_REGION, all_char_here, building_owner, here_list, is_ship,
+    loc_depth, region, subloc,
 };
 use crate::lore::set_known;
 use crate::order::prepend_order;
 use crate::swear::{LOY_NPC, LOY_SUMMON, set_loyal};
-use crate::turn::{Phase, not_ported};
+use crate::turn::Phase;
 use crate::unit::{
     count_stack_figures, count_stack_move_nobles, determine_stack_weights, is_prisoner, loyal_kind,
-    restore_stack_actions,
+    release_swear, restore_stack_actions, stack_has_item,
 };
 use crate::wait::lookup;
 
@@ -177,13 +180,7 @@ fn unstack(db: &mut Db, who: i32) {
         "unstack: leader stacked"
     );
 
-    // release_swear()
-    let release = db
-        .get(who)
-        .and_then(|b| b.char_.as_ref())
-        .and_then(|c| c.magic.as_ref())
-        .is_some_and(|m| m.swear_on_release != 0);
-    if release {
+    if release_swear(db, who) {
         db.p_magic(who).swear_on_release = 0;
     }
 
@@ -492,18 +489,151 @@ impl Game {
     }
 
     /// `olympia/stack.c:prisoner_movement_escape_check`: each prisoner in
-    /// `who`'s stack may escape as it sets out.
+    /// `who`'s stack may escape as it sets out, one in 50.
     ///
     /// # Errors
     ///
-    /// Returns [`NotYetImplemented`] if there is a prisoner: the escape
-    /// roll (`check_prisoner_escape`) comes with the daily events.
+    /// Returns [`NotYetImplemented`] if an escape reaches something not
+    /// ported.
     fn prisoner_movement_escape_check(&mut self, who: i32) -> Phase {
-        if all_char_here(&self.db, who)
-            .into_iter()
-            .any(|i| is_prisoner(&self.db, i))
-        {
-            return not_ported("check_prisoner_escape");
+        for i in all_char_here(&self.db, who) {
+            if is_prisoner(&self.db, i) {
+                self.check_prisoner_escape(i, 2, ESC_MOVE)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `olympia/stack.c:check_prisoner_escape`: prisoner `who` escapes
+    /// `chance` times in 100, half as often if its captors' stack has a
+    /// hound, on the `enty` roll for check `sub`. Returns whether it did.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] if the escape reaches something not
+    /// ported.
+    pub fn check_prisoner_escape(
+        &mut self,
+        who: i32,
+        chance: i32,
+        sub: i32,
+    ) -> Result<bool, NotYetImplemented> {
+        let hound = stack_has_item(&self.db, who, ITEM_HOUND);
+        let mut chance = chance * 10;
+        if hound != 0 {
+            chance /= 2;
+        }
+        if self.ent_prisoner(who, sub) > chance {
+            // TODO(stage 2): with a hound, "The hound is barking." or "The
+            // hounds are barking." to the captors' stack (vector_stack).
+            return Ok(false);
+        }
+        self.prisoner_escapes(who)?;
+        Ok(true)
+    }
+
+    /// `olympia/stack.c:prisoner_escapes`: prisoner `who` goes free. Out of
+    /// a building or ship it gets clear to the place outside, swimming for
+    /// the nearest land from a ship at sea.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] if arriving reaches something not
+    /// ported.
+    pub fn prisoner_escapes(&mut self, who: i32) -> Phase {
+        // TODO(stage 2): wout(leader, "Prisoner %s escaped!").
+        self.db.p_char(who).prisoner = 0;
+        self.db.p_magic(who).swear_on_release = 0;
+        unstack(&mut self.db, who);
+        self.touch_loc(who);
+
+        // TODO(stage 2): wout(who, "We escaped!").
+
+        let where_ = subloc(&self.db, who);
+        if loc_depth(&self.db, where_) <= LOC_PROVINCE {
+            return Ok(());
+        }
+
+        let mut out_one = self.db.loc(where_);
+        if is_ship(&self.db, where_) && self.db.subkind(out_one) == Subkind::OCEAN {
+            out_one = self.find_nearest_land(out_one);
+            // TODO(stage 2): the swim ashore to who, "jumped overboard and
+            // presumably drowned." to the captor, and the LOG_SPECIAL line.
+        }
+
+        self.move_stack(who, out_one)
+    }
+
+    /// `olympia/stack.c:weekly_prisoner_escape_check`: each prisoner held
+    /// on land (not by a flyer over the ocean) who hasn't sworn to its
+    /// rescuer may escape: one in 100 in a building or ship, two in 100
+    /// elsewhere.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] if an escape reaches something not
+    /// ported.
+    pub fn weekly_prisoner_escape_check(&mut self) -> Phase {
+        // loop_char: an escape into Faery can raise an ambush, adding
+        // characters ahead of the loop.
+        let mut who = self.db.kind_first(Kind::CHAR);
+        while who > 0 {
+            let next = self.db.kind_next(who);
+            if !is_prisoner(&self.db, who)
+                && self.db.subkind(subloc(&self.db, who)) != Subkind::OCEAN
+            {
+                for i in here_list(&self.db, who) {
+                    if self.db.kind(i) == Kind::CHAR
+                        && is_prisoner(&self.db, i)
+                        && !release_swear(&self.db, i)
+                    {
+                        let chance = if loc_depth(&self.db, subloc(&self.db, who)) >= LOC_BUILD {
+                            1
+                        } else {
+                            2
+                        };
+                        self.check_prisoner_escape(i, chance, ESC_WEEKLY)?;
+                    }
+                }
+            }
+            who = next;
+        }
+        Ok(())
+    }
+
+    /// `olympia/move.c:check_ocean_chars`: each character flying over the
+    /// ocean tires: after 15 days a stack's leader can no longer stay up,
+    /// and its stack plunges into the sea. Those no longer over the ocean
+    /// come off the list.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] if a stack plunges
+    /// ([`kill_stack_ocean`](Self::kill_stack_ocean)).
+    pub fn check_ocean_chars(&mut self) -> Phase {
+        let l = self.ocean_chars.as_slice().to_vec();
+        for who in l {
+            let where_ = subloc(&self.db, who);
+            if self.db.kind(who) != Kind::CHAR || self.db.subkind(where_) != Subkind::OCEAN {
+                self.db.p_char(who).time_flying = 0;
+                self.ocean_chars.rem_value(who);
+                continue;
+            }
+
+            let p = self.db.p_char(who);
+            // schar: wraps as C's does.
+            p.time_flying = p.time_flying.wrapping_add(1);
+            if p.time_flying <= 15 {
+                continue;
+            }
+
+            if stack_parent(&self.db, who) != 0 {
+                continue;
+            }
+
+            // TODO(stage 2): "Flight can no longer be maintained.  %s
+            // plunges into the sea." to the stack.
+            self.kill_stack_ocean(who)?;
         }
         Ok(())
     }

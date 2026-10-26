@@ -168,16 +168,6 @@ impl Game {
         eprint!("{}", char::from(c));
     }
 
-    /// `olympia/day.c:daily_events`: the day's scheduled events. Task 7
-    /// lays it out (the `caln` day picks, the weather days and the daily
-    /// routines). The weather pieces are ported (task 8): call
-    /// [`schedule_weather_days`](Self::schedule_weather_days) right after
-    /// the `caln` day picks, and [`weather_day`](Self::weather_day) after
-    /// `dogs_bark_at_hidden_chars()` and before `auto_faery()`.
-    fn daily_events(&mut self) -> Phase {
-        not_ported("daily_events")
-    }
-
     /// `olympia/day.c:post_month`: end-of-month settlement.
     fn post_month(&mut self) -> Phase {
         stage("post_month()");

@@ -11,12 +11,15 @@
 //! to the locations are report output.
 
 use crate::buy::SUB_SUFFUSE_RING;
-use crate::entity::{Kind, Subkind};
+use crate::entity::{Db, Kind, Subkind};
 use crate::game::{Game, NotYetImplemented, player};
 use crate::loc::{province, subloc};
 use crate::swear::LOY_NPC;
 use crate::turn::{Phase, not_ported};
-use crate::unit::{SUB_NI, beast_capturable, item_token_ni, item_token_num, item_unique};
+use crate::unit::{
+    SUB_NI, beast_capturable, char_auraculum, char_max_aura, has_item, inventory, item_aura,
+    item_aura_bonus, item_token_ni, item_token_num, item_unique,
+};
 
 /// `sub_npc_token`.
 const SUB_NPC_TOKEN: Subkind = Subkind(63);
@@ -25,6 +28,32 @@ const SUB_NPC_TOKEN: Subkind = Subkind(63);
 /// order `new_suffuse_ring()` picks from: barbarian, savage, corpse, orc
 /// and skeleton.
 const SUFFUSE_RINGS: [(i8, i32); 5] = [(10, 938), (11, 939), (12, 940), (13, 941), (14, 942)];
+
+/// `olympia/art.c:has_auraculum`: `who`'s auraculum, if it holds it, or 0.
+#[must_use]
+pub fn has_auraculum(db: &Db, who: i32) -> i32 {
+    let ac = char_auraculum(db, who);
+    if ac != 0 && db.valid_box(ac) && has_item(db, who, ac) > 0 {
+        ac
+    } else {
+        0
+    }
+}
+
+/// `olympia/art.c:max_eff_aura`: `who`'s maximum aura: innate, plus its
+/// auraculum's, plus every aura bonus it carries.
+#[must_use]
+pub fn max_eff_aura(db: &Db, who: i32) -> i32 {
+    let mut a = char_max_aura(db, who).max(0);
+    let ac = has_auraculum(db, who);
+    if ac != 0 {
+        a += item_aura(db, ac);
+    }
+    for e in inventory(db, who) {
+        a += item_aura_bonus(db, e.item);
+    }
+    a
+}
 
 impl Game {
     /// `olympia/art.c:new_suffuse_ring`: a golden ring for the market at

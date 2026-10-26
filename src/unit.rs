@@ -115,6 +115,78 @@ pub fn ferry_horn(db: &Db, n: i32) -> bool {
     rp_magic(db, n).is_some_and(|m| m.ferry_flag != 0)
 }
 
+/// `char_sick()`.
+#[must_use]
+pub fn char_sick(db: &Db, n: i32) -> bool {
+    rp_char(db, n).is_some_and(|c| c.sick != 0)
+}
+
+/// `is_magician()`.
+#[must_use]
+pub fn is_magician(db: &Db, n: i32) -> bool {
+    rp_magic(db, n).is_some_and(|m| m.magician != 0)
+}
+
+/// `default_garrison()`: a unit that stands in for a garrison's men.
+#[must_use]
+pub fn default_garrison(db: &Db, n: i32) -> bool {
+    rp_magic(db, n).is_some_and(|m| m.default_garr != 0)
+}
+
+/// `release_swear()`: a prisoner who swears to whoever frees it.
+#[must_use]
+pub fn release_swear(db: &Db, n: i32) -> bool {
+    rp_magic(db, n).is_some_and(|m| m.swear_on_release != 0)
+}
+
+/// `char_max_aura()`.
+#[must_use]
+pub fn char_max_aura(db: &Db, n: i32) -> i32 {
+    rp_magic(db, n).map_or(0, |m| m.max_aura)
+}
+
+/// `char_auraculum()`.
+#[must_use]
+pub fn char_auraculum(db: &Db, n: i32) -> i32 {
+    rp_magic(db, n).map_or(0, |m| m.auraculum)
+}
+
+/// `item_aura()`.
+#[must_use]
+pub fn item_aura(db: &Db, n: i32) -> i32 {
+    rp_item_magic(db, n).map_or(0, |m| i32::from(m.aura))
+}
+
+/// `item_aura_bonus()`.
+#[must_use]
+pub fn item_aura_bonus(db: &Db, n: i32) -> i32 {
+    rp_item_magic(db, n).map_or(0, |m| i32::from(m.aura_bonus))
+}
+
+/// `item_curse()`: a cursed item's loyalty curse and its creator, as
+/// `(curse_loyalty, creator)`, if the item has magic.
+#[must_use]
+pub fn item_curse(db: &Db, n: i32) -> Option<(i32, i32)> {
+    rp_item_magic(db, n).map(|m| (i32::from(m.curse_loyalty), m.creator))
+}
+
+/// `loop_inv()`: a copy of `who`'s inventory, skipping invalid items and
+/// those it holds none of.
+///
+/// # Panics
+///
+/// Panics if `who` isn't a valid box, as C asserts.
+#[must_use]
+pub fn inventory(db: &Db, who: i32) -> Vec<ItemEnt> {
+    assert!(db.valid_box(who), "loop_inv: invalid box {who}");
+    db.entity(who)
+        .items
+        .iter()
+        .filter(|e| db.valid_box(e.item) && e.qty > 0)
+        .copied()
+        .collect()
+}
+
 /// `has_item()`: how many of `item` `who` holds.
 ///
 /// # Panics

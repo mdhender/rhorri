@@ -9,6 +9,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::buy::Economy;
+use crate::day::Calendar;
 use crate::dir::ExitDir;
 use crate::entity::IList;
 use crate::entity::{Db, Kind, MAX_BOXES};
@@ -77,6 +78,8 @@ pub struct Game {
     pub hades: HadesRng,
     /// The `faer` turn stream; see [`crate::faery`].
     pub faery: FaeryRng,
+    /// The days the month's events fall on; see [`crate::day`].
+    pub calendar: Calendar,
     /// The characters flying over the ocean (`olympia/move.c:ocean_chars`).
     pub ocean_chars: IList,
     /// The `econ` stream as last seeded; see [`crate::buy`].
@@ -109,6 +112,7 @@ impl Game {
             npc_rng: NpcRng::default(),
             hades: HadesRng::default(),
             faery: FaeryRng::default(),
+            calendar: Calendar::default(),
             ocean_chars: IList::default(),
             economy: Economy::default(),
             num_savages: 0,
