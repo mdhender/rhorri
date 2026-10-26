@@ -3,3 +3,7 @@
 
 //! The Olympia G3 game engine, ported from the C reference implementation in
 //! [playbymail/olympia-g3](https://github.com/playbymail/olympia-g3).
+
+pub mod md5;
+pub mod rnd;
+pub mod rng;
