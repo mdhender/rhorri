@@ -25,6 +25,13 @@ impl Tag {
     pub const fn new(name: &[u8; 4]) -> Self {
         Self(u32::from_be_bytes(*name))
     }
+
+    /// The tag with `bits` folded in (`tag ^ bits`), for a purpose tag
+    /// that carries a key of its own.
+    #[must_use]
+    pub const fn xor(self, bits: u32) -> Self {
+        Self(self.0 ^ bits)
+    }
 }
 
 /// A 128-bit seed and a draw counter (`rng_stream`).

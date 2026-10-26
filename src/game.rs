@@ -87,6 +87,9 @@ pub struct Game {
     /// The savage units in the world, as `init_savage_attacks` last counted
     /// them (`olympia/savage.c:num_savages`).
     pub num_savages: i32,
+    /// Whether the characters' `pledged_to_us` lists are up to date
+    /// (`olympia/report.c:pledge_backlinks`).
+    pub pledge_backlinks: bool,
 }
 
 impl Game {
@@ -116,6 +119,7 @@ impl Game {
             ocean_chars: IList::default(),
             economy: Economy::default(),
             num_savages: 0,
+            pledge_backlinks: false,
         }
     }
 

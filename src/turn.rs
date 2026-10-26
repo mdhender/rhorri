@@ -5,11 +5,16 @@
 //! `process_orders()` (`olympia/input.c`), `post_month()`
 //! (`olympia/day.c`) and the report phase.
 //!
-//! The skeleton calls every phase in C order. A phase that isn't ported yet
-//! stops the run with [`NotYetImplemented`] naming the routine, rather than
-//! being skipped; the comment beside each names the stage 1 task (#5) that
-//! ports it. The report phase is the exception: until stage 2 its routines
-//! print their `stage()` line and do nothing else.
+//! Every phase runs in C order; a routine a phase reaches that isn't
+//! ported yet stops the run with [`NotYetImplemented`] naming it, rather
+//! than being skipped. The month's end routines are in [`crate::month`].
+//!
+//! The report phase is the exception: until stage 2 its routines print
+//! their `stage()` line and write no report. What they change in the
+//! database is ported, since it is saved: `determine_output_order()`
+//! sorts the factions' unit lists, printing sorts inventories and
+//! attitude and admit lists in place, the character reports collect the
+//! pledge backlinks, and queuing lore marks it known.
 //!
 //! `phase_ran()` and `phase_acted()` (the `--phase-coverage` counters) are
 //! left out: `--phase-coverage` isn't ported yet, and stops the run before
@@ -18,16 +23,32 @@
 use std::fs::{self, File};
 
 use crate::command::find_command;
-use crate::entity::Subkind;
+use crate::entity::{Db, Subkind};
 use crate::entity::{Kind, MONTH_DAYS};
 use crate::game::{Game, NotYetImplemented, player, stage};
 use crate::loc::{
-    LOC_PROVINCE, all_here, castle_level, loc_depth, major_city, province, subloc, viewloc,
+    LOC_PROVINCE, LOC_REGION, all_here, castle_level, loc_depth, major_city, province, subloc,
+    viewloc,
 };
 use crate::lore::{scan_char_item_lore, scan_char_skill_lore};
 use crate::os::strerror;
 use crate::seed::ITEM_TAX_COOKIE;
-use crate::unit::{has_item, item_unique};
+use crate::unit::{char_pledge, has_item, is_prisoner, item_unique};
+
+/// `sub_pl_silent`: a faction that gets no reports.
+const SUB_PL_SILENT: Subkind = Subkind(62);
+
+/// `olympia/perm.c:print_att`: `n`'s attitudes. TODO(stage 2): the report
+/// lines. `print_att_sup()` sorts each list it prints in place.
+fn print_att(db: &mut Db, n: i32) {
+    if let Some(d) = db.get_mut(n).and_then(|b| b.disp.as_deref_mut()) {
+        for l in [&mut d.hostile, &mut d.neutral, &mut d.defend] {
+            if !l.is_empty() {
+                l.sort();
+            }
+        }
+    }
+}
 
 /// `RELIC_CROWN`: the Crown of Prosperity.
 const RELIC_CROWN: i32 = 402;
@@ -172,58 +193,52 @@ impl Game {
     fn post_month(&mut self) -> Phase {
         stage("post_month()");
 
-        not_ported("clear_orders_sent")?; // task 10
+        self.clear_orders_sent();
 
         let month = self.system.sysclock.month();
         if month == 2 {
-            not_ported("special_locs_open")?; // task 10
+            self.special_locs(true); // special_locs_open()
         }
         if month == 6 {
-            not_ported("special_locs_close")?; // task 10
+            self.special_locs(false); // special_locs_close()
         }
 
         self.move_city_gold()?;
-        not_ported("garrison_gold")?; // task 10
-        not_ported("collect_taxes")?; // task 10
-        not_ported("add_claim_gold")?; // task 10
-        not_ported("add_noble_points")?; // task 10
-        not_ported("add_unformed")?; // task 10
-        not_ported("increment_current_aura")?; // task 10
-        not_ported("decrement_ability_shroud")?; // task 10
-        not_ported("decrement_region_shroud")?; // task 10
-        not_ported("decrement_meditation_hinder")?; // task 10
-        not_ported("decrement_loc_barrier")?; // task 10
-        not_ported("loyalty_decay")?; // task 10
-        not_ported("pillage_decay")?; // task 10
-        not_ported("relic_decay")?; // task 10
-        not_ported("hide_mage_decay")?; // task 10
-        not_ported("inn_income")?; // task 10
-        not_ported("temple_income")?; // task 10
-        not_ported("charge_maint_costs")?; // task 10
-        self.animal_deaths()?;
-        not_ported("ghost_warrior_decay")?; // task 10
-        not_ported("corpse_decay")?; // task 10
-        not_ported("dead_body_rot")?; // task 10
+        self.garrison_gold()?;
+        self.collect_taxes();
+        self.add_claim_gold();
+        self.add_noble_points();
+        self.add_unformed();
+        self.increment_current_aura();
+        self.decrement_ability_shroud();
+        self.decrement_region_shroud();
+        self.decrement_meditation_hinder();
+        self.decrement_loc_barrier();
+        self.loyalty_decay()?;
+        self.pillage_decay();
+        self.relic_decay()?;
+        self.hide_mage_decay();
+        self.inn_income();
+        self.temple_income();
+        self.charge_maint_costs()?;
+        self.animal_deaths();
+        self.ghost_warrior_decay();
+        self.corpse_decay();
+        self.dead_body_rot();
         self.storm_decay()?;
         self.storm_move();
-        not_ported("collapsed_mine_decay")?; // task 10
+        self.collapsed_mine_decay()?;
         self.post_production();
         if self.system.auto_quit_turns > 0 {
-            not_ported("auto_drop")?; // task 10
+            self.auto_drop();
         }
-        not_ported("link_decay")?; // task 10
-        not_ported("quest_decay")?; // task 10
+        self.link_decay();
+        self.quest_decay();
         self.check_token_units()?;
-        self.determine_noble_ranks()?;
+        self.determine_noble_ranks();
 
         self.system.post_has_been_run = 1;
         Ok(())
-    }
-
-    /// `olympia/day.c:animal_deaths`. Task 10.
-    fn animal_deaths(&mut self) -> Phase {
-        stage("animal_deaths()");
-        not_ported("animal_deaths")
     }
 
     /// `olympia/day.c:post_production`: the month's civilization levels,
@@ -332,21 +347,116 @@ impl Game {
         Ok(())
     }
 
-    /// `olympia/garr.c:determine_noble_ranks`. Task 10.
-    fn determine_noble_ranks(&mut self) -> Phase {
-        stage("determine_noble_ranks()");
-        not_ported("determine_noble_ranks")
+    /// `olympia/report.c:determine_output_order`: numbers each region and
+    /// everything in it in report order, and sorts every faction's unit
+    /// list into that order (`sort_for_output()`), which is saved.
+    fn determine_output_order(&mut self) {
+        let db = &mut self.db;
+        let mut count = 0;
+        for reg in db.boxes_of_kind(Kind::LOC) {
+            if loc_depth(db, reg) != LOC_REGION {
+                continue;
+            }
+            db.entity_mut(reg).output_order = count;
+            count += 1;
+            for i in all_here(db, reg) {
+                db.entity_mut(i).output_order = count;
+                count += 1;
+            }
+        }
+
+        // Sort all player unit lists.
+        for pl in db.boxes_of_kind(Kind::PLAYER) {
+            let Some(mut units) = db
+                .entity_mut(pl)
+                .player
+                .as_deref_mut()
+                .map(|p| std::mem::take(&mut p.units))
+            else {
+                continue;
+            };
+            // output_order_comp(): by output order, then by number.
+            units.sort_by_key(|&n| (db.entity(n).output_order, n));
+            db.p_player(pl).units = units;
+        }
+    }
+
+    /// `olympia/report.c:player_ent_info`: each faction's admit
+    /// permissions, attitudes and unclaimed items. TODO(stage 2): the
+    /// report lines. Printing sorts the lists it prints, in place, and
+    /// they are saved that way.
+    fn player_ent_info(&mut self) {
+        for pl in self.db.boxes_of_kind(Kind::PLAYER) {
+            if self.db.subkind(pl) == SUB_PL_SILENT {
+                continue;
+            }
+            // print_admit() (perm.c): admit_comp orders by target.
+            self.db.p_player(pl).admits.sort_unstable_by_key(|a| a.targ);
+            print_att(&mut self.db, pl);
+            // show_unclaimed(): inv_item_comp orders by item.
+            self.db
+                .entity_mut(pl)
+                .items
+                .sort_unstable_by_key(|e| e.item);
+        }
+    }
+
+    /// `olympia/report.c:character_report`: each character's report to
+    /// its faction. TODO(stage 2): the report. What it changes is saved:
+    /// `char_rep_sup()` sorts the attitude lists and the inventory it
+    /// prints in place, and the first report collects the pledge backlinks
+    /// (`show_pledged()`).
+    fn character_report(&mut self) {
+        stage("character_report()");
+        for who in self.db.boxes_of_kind(Kind::CHAR) {
+            if self.db.subkind(player(&self.db, who)) == SUB_PL_SILENT {
+                continue;
+            }
+            // A prisoner's report is a line saying so; its prisoner flag
+            // is lowered for it and raised again (to TRUE).
+            if is_prisoner(&self.db, who) {
+                self.db.p_char(who).prisoner = 1;
+                continue;
+            }
+            // char_rep_sup()
+            if !self.pledge_backlinks {
+                self.collect_pledge_backlinks();
+            }
+            print_att(&mut self.db, who);
+            // show_char_inventory(): inv_item_comp orders by item.
+            self.db
+                .entity_mut(who)
+                .items
+                .sort_unstable_by_key(|e| e.item);
+        }
+    }
+
+    /// `olympia/report.c:collect_pledge_backlinks`: lists, on each
+    /// character pledged to, who is pledged to it. Every character gets a
+    /// magic struct.
+    fn collect_pledge_backlinks(&mut self) {
+        self.pledge_backlinks = true;
+        let chars = self.db.boxes_of_kind(Kind::CHAR);
+        for &i in &chars {
+            self.db.p_magic(i).pledged_to_us.clear();
+        }
+        for &i in &chars {
+            let n = char_pledge(&self.db, i);
+            if n != 0 {
+                self.db.p_magic(n).pledged_to_us.append(i);
+            }
+        }
     }
 
     /// The report phase, in `main()`'s order. TODO(stage 2): each report
     /// routine prints its `stage()` line and does nothing else.
     fn report_phase(&mut self, acct: bool) -> Phase {
-        // determine_output_order() (report.c) orders the regions for the
-        // reports; nothing saved.
+        self.determine_output_order();
         stage("turn_end_loc_reports()");
-        // list_order_templates() (order.c) and player_ent_info()
-        // (report.c) print no stage line.
-        stage("character_report()");
+        // list_order_templates() (order.c) prints no stage line, and
+        // changes nothing.
+        self.player_ent_info();
+        self.character_report();
 
         stage("player_banner()");
         if acct {

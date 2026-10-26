@@ -148,7 +148,7 @@ pub fn clear_guard_flag(db: &mut Db, who: i32) {
 /// # Panics
 ///
 /// Panics if `who` is already above `new_pos`, as C asserts.
-fn promote(db: &mut Db, who: i32, new_pos: i32) {
+pub(crate) fn promote(db: &mut Db, who: i32, new_pos: i32) {
     let who_pos = here_pos(db, who);
     assert!(
         who_pos >= new_pos,

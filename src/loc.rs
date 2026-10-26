@@ -344,6 +344,69 @@ pub fn loc_link_open(db: &Db, n: i32) -> i32 {
     rp_subloc(db, n).map_or(0, |s| i32::from(s.link_open))
 }
 
+/// `recent_pillage()`: whether a location was pillaged this month. The
+/// flag isn't saved.
+#[must_use]
+pub fn recent_pillage(db: &Db, n: i32) -> bool {
+    rp_subloc(db, n).is_some_and(|s| s.recent_loot != 0)
+}
+
+/// `subloc_quest()`: how many months a quest location has left.
+#[must_use]
+pub fn subloc_quest(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| i32::from(s.quest_late))
+}
+
+/// `summerbridge()`: 1 or 2 for Summerbridge's seasonal swamps (north or
+/// south), 0 elsewhere.
+#[must_use]
+pub fn summerbridge(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| i32::from(s.summer_flag))
+}
+
+/// `uldim()`: 3 or 4 for Uldim pass's seasonal snows (south or north), 0
+/// elsewhere.
+#[must_use]
+pub fn uldim(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| i32::from(s.uldim_flag))
+}
+
+/// `olympia/loc.c:subloc_here`: the first location of subkind `sk`
+/// directly in `where_`, or 0. `city_here()` is this for cities.
+#[must_use]
+pub fn subloc_here(db: &Db, where_: i32, sk: Subkind) -> i32 {
+    here_list(db, where_)
+        .into_iter()
+        .find(|&i| db.kind(i) == Kind::LOC && db.subkind(i) == sk)
+        .unwrap_or(0)
+}
+
+/// `olympia/loc.c:count_loc_structures`: how many locations of subkind
+/// `a` or `b` are directly in `where_`.
+#[must_use]
+pub fn count_loc_structures(db: &Db, where_: i32, a: Subkind, b: Subkind) -> i32 {
+    here_list(db, where_)
+        .into_iter()
+        .filter(|&i| db.kind(i) == Kind::LOC && (db.subkind(i) == a || db.subkind(i) == b))
+        .count() as i32
+}
+
+/// `olympia/build.c:province_subloc`: the first location of subkind `sk`
+/// in `where_`'s province, or else in the province's city, or 0.
+#[must_use]
+pub fn province_subloc(db: &Db, where_: i32, sk: Subkind) -> i32 {
+    let prov = province(db, where_);
+    let city = subloc_here(db, prov, Subkind::CITY);
+    let n = subloc_here(db, prov, sk);
+    if n != 0 {
+        return n;
+    }
+    if city != 0 {
+        return subloc_here(db, city, sk);
+    }
+    0
+}
+
 /// `loop_all_here` (`olympia/loc.c:all_here`): everything in `who`, depth
 /// first: each box directly in it, followed by what is inside that one.
 ///

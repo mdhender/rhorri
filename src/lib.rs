@@ -27,6 +27,7 @@ pub mod loc;
 pub mod lore;
 pub mod md5;
 pub mod mint;
+pub mod month;
 pub mod movement;
 pub mod npc;
 pub mod order;

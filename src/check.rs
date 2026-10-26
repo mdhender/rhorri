@@ -34,7 +34,7 @@ const SUB_PL_NPC: Subkind = Subkind(52);
 const SUB_PL_SILENT: Subkind = Subkind(62);
 
 /// `STATE_RUN`: a command that is executing.
-const STATE_RUN: i8 = 2;
+pub(crate) const STATE_RUN: i8 = 2;
 
 /// Formats a message with `format!`, which may splice in byte-string names
 /// as `{}` of [`Bytes`], and writes it to standard error.

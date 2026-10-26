@@ -83,8 +83,7 @@ impl Game {
 
             if self.char_pledge(who) != 0 {
                 self.db.p_magic(who).pledge = 0;
-                // TODO(stage 2): pledge_backlinks = FALSE, report.c's cache
-                // of who is pledged to whom.
+                self.pledge_backlinks = false;
             }
 
             self.db.p_player(old_pl).units.rem_value(who);

@@ -72,6 +72,14 @@ impl IList {
         }
     }
 
+    /// Sorts the list in place by `key`, which must order the elements
+    /// totally (as a `qsort()` comparator must, for any sort to agree).
+    pub fn sort_by_key<K: Ord>(&mut self, key: impl FnMut(&i32) -> K) {
+        if let Some(v) = &mut self.0 {
+            v.sort_unstable_by_key(key);
+        }
+    }
+
     /// The number of elements.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -393,6 +401,8 @@ pub struct Player {
     /// The commands the faction's units started this turn (`cmd_count`).
     /// Not saved.
     pub cmd_count: i16,
+    /// The noble points gained this turn (`np_gained`). Not saved.
+    pub np_gained: i16,
 }
 
 /// Attitudes (`struct att_ent`).
@@ -444,6 +454,11 @@ pub struct Char {
     pub attack: i16,
     pub defense: i16,
     pub missile: i16,
+    /// Hired this turn, so its loyalty doesn't erode (`fresh_hire`). Not
+    /// saved.
+    pub fresh_hire: i8,
+    /// Got a new lord this turn (`new_lord`). Not saved.
+    pub new_lord: i8,
 }
 
 /// A magician's state (`struct char_magic`). Zero-checked.
@@ -520,6 +535,8 @@ pub struct Subloc {
     pub link_to: IList,
     pub link_from: IList,
     pub bound_storms: IList,
+    /// Pillaged this month (`recent_loot`). Not saved.
+    pub recent_loot: i8,
 }
 
 /// An item kind (`struct entity_item`). Zero-checked, including whether it
@@ -720,6 +737,8 @@ pub struct Entity {
     pub trades: Vec<Trade>,
     /// Scratch space.
     pub temp: i32,
+    /// Where the box comes in the reports (`output_order`). Not saved.
+    pub output_order: i32,
     /// The next box of the same kind (`x_next_kind`); see [`Db::kind_next`].
     x_next_kind: i32,
     /// The next box of the same subkind (`x_next_sub`); see

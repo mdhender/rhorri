@@ -312,6 +312,76 @@ pub fn item_unique(db: &Db, n: i32) -> i32 {
     rp_item(db, n).map_or(0, |i| i.who_has)
 }
 
+/// `item_animal()`: whether an item is an animal.
+#[must_use]
+pub fn item_animal(db: &Db, n: i32) -> bool {
+    rp_item(db, n).is_some_and(|i| i.animal != 0)
+}
+
+/// `item_relic_decay()`: how many months a relic has left.
+#[must_use]
+pub fn item_relic_decay(db: &Db, n: i32) -> i32 {
+    rp_item_magic(db, n).map_or(0, |m| i32::from(m.relic_decay))
+}
+
+/// `loyal_rate()`.
+#[must_use]
+pub fn loyal_rate(db: &Db, n: i32) -> i32 {
+    rp_char(db, n).map_or(0, |c| c.loy_rate)
+}
+
+/// `char_rank()`: a noble's rank (`RANK_lord` and up), or 0.
+#[must_use]
+pub fn char_rank(db: &Db, n: i32) -> i32 {
+    rp_char(db, n).map_or(0, |c| i32::from(c.rank))
+}
+
+/// `char_pledge()`: whom `n` is pledged to, or 0.
+#[must_use]
+pub fn char_pledge(db: &Db, n: i32) -> i32 {
+    rp_magic(db, n).map_or(0, |m| m.pledge)
+}
+
+/// `body_old_lord()`: the faction a dead noble's body belonged to.
+#[must_use]
+pub fn body_old_lord(db: &Db, n: i32) -> i32 {
+    rp_misc(db, n).map_or(0, |m| m.old_lord)
+}
+
+/// `skill_np_req()`: the noble points a skill costs.
+#[must_use]
+pub fn skill_np_req(db: &Db, n: i32) -> i32 {
+    db.get(n)
+        .and_then(|b| b.skill.as_deref())
+        .map_or(0, |s| s.np_req)
+}
+
+/// `olympia/use.c:char_np_total`: the noble points a character is worth:
+/// one, plus its oath, plus the cost of every skill on its list. An NPC
+/// (but a dead noble's body) is worth none.
+#[must_use]
+pub fn char_np_total(db: &Db, who: i32) -> i32 {
+    /// `sub_dead_body`.
+    const SUB_DEAD_BODY: Subkind = Subkind(56);
+    /// `LOY_oath`.
+    const LOY_OATH: i32 = 2;
+
+    let mut sum = 1; // chars cost 1 NP to start
+    if is_npc(db, who) && db.subkind(who) != SUB_DEAD_BODY {
+        return 0;
+    }
+    if loyal_kind(db, who) == LOY_OATH {
+        sum += loyal_rate(db, who);
+    }
+    assert!(db.valid_box(who), "loop_char_skill: invalid box {who}");
+    if let Some(c) = rp_char(db, who) {
+        for e in &c.skills {
+            sum += skill_np_req(db, e.skill);
+        }
+    }
+    sum
+}
+
 /// `item_attack()`.
 #[must_use]
 pub fn item_attack(db: &Db, n: i32) -> i32 {

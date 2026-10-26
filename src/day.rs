@@ -13,8 +13,9 @@
 //! derived afresh for each draw here. See olympia-g3's
 //! `doc/claude/rng-streams.md`.
 //!
-//! The rest of `post_month()`'s upkeep draws (`up_loyal`, `up_starve`,
-//! `up_animal`, `up_corpse`, `up_income`) come with the month's end.
+//! The month's end draws on `upkp` too (`up_loyal`, `up_starve`,
+//! `up_animal`, `up_corpse`, `up_income`); those are keyed leaves on the
+//! turn's stream itself, not on a day's child.
 //!
 //! TODO(stage 2): the `wout()` and `log_write()` lines (calamities,
 //! healing, garrison pay, aura) are report output, and so is
@@ -43,6 +44,16 @@ const CTAG_DAY: Tag = Tag::new(b"day ");
 const TAG_UPKEEP: Tag = Tag::new(b"upkp");
 /// `UTAG_HEAL`: sick recovery and the amount healed or lost.
 const UTAG_HEAL: Tag = Tag::new(b"heal");
+/// `UTAG_LOYAL`: loyalty-decay desertion checks.
+const UTAG_LOYAL: Tag = Tag::new(b"loyl");
+/// `UTAG_SICKEN`: whether starving men left service or deserted.
+const UTAG_SICKEN: Tag = Tag::new(b"sckn");
+/// `UTAG_ANIMAL`: whether one animal dies.
+const UTAG_ANIMAL: Tag = Tag::new(b"dier");
+/// `UTAG_CORPSE`: corpse decomposition.
+const UTAG_CORPSE: Tag = Tag::new(b"corp");
+/// `UTAG_INCOME`: an inn's income.
+const UTAG_INCOME: Tag = Tag::new(b"inco");
 
 /// `item_worker`.
 const ITEM_WORKER: i32 = 11;
@@ -83,6 +94,43 @@ impl Game {
         turn_stream(self, TAG_UPKEEP)
             .child(i32::from(self.system.sysclock.day), UTAG_HEAL)
             .keyed(who, sub, UTAG_HEAL, low, high)
+    }
+
+    /// `up_loyal()`: loyalty-decay desertion check `sub` (0 a contract
+    /// running out, 1 fear wearing off) for `who`, on the `upkp` stream.
+    #[must_use]
+    pub fn up_loyal(&self, who: i32, sub: i32, low: i32, high: i32) -> i32 {
+        turn_stream(self, TAG_UPKEEP).keyed(who, sub, UTAG_LOYAL, low, high)
+    }
+
+    /// `up_starve()`: whether `who`'s starving men of kind `item` left
+    /// service (1) or deserted, on the `upkp` stream.
+    #[must_use]
+    pub fn up_starve(&self, who: i32, item: i32, low: i32, high: i32) -> i32 {
+        turn_stream(self, TAG_UPKEEP).keyed(who, item, UTAG_SICKEN, low, high)
+    }
+
+    /// `up_animal()`: the death roll for animal `idx` (from 1) of kind
+    /// `item` held by `who`, on the `upkp` stream. The item is folded into
+    /// the purpose tag.
+    #[must_use]
+    pub fn up_animal(&self, who: i32, item: i32, idx: i32, low: i32, high: i32) -> i32 {
+        turn_stream(self, TAG_UPKEEP).keyed(who, idx, UTAG_ANIMAL.xor(item as u32), low, high)
+    }
+
+    /// `up_corpse()`: how many of `who`'s corpses decompose, on the `upkp`
+    /// stream.
+    #[must_use]
+    pub fn up_corpse(&self, who: i32, low: i32, high: i32) -> i32 {
+        turn_stream(self, TAG_UPKEEP).keyed(who, 0, UTAG_CORPSE, low, high)
+    }
+
+    /// `up_income()`: inn `inn`'s income roll `sub` (0 the base income, 1
+    /// the rich traveller's chance, 2 his spending, 3 the pillage message),
+    /// on the `upkp` stream.
+    #[must_use]
+    pub fn up_income(&self, inn: i32, sub: i32, low: i32, high: i32) -> i32 {
+        turn_stream(self, TAG_UPKEEP).keyed(inn, sub, UTAG_INCOME, low, high)
     }
 
     /// `olympia/day.c:daily_events`: the day's scheduled events.
@@ -465,6 +513,50 @@ mod tests {
         assert_eq!(
             [g.up_heal(1234, 0, 1, 100), g.up_heal(1234, 1, 3, 15)],
             [59, 15]
+        );
+    }
+
+    /// The month-end `upkp` leaves for turn 3 under `MASTER`, from
+    /// `rng_keyed` over lib/rng.c with day.c's tags (the animal is item
+    /// 52).
+    #[test]
+    fn month_end_upkeep_draws_match_c() {
+        let g = game(3, 30);
+        assert_eq!(
+            [
+                g.up_loyal(1234, 0, 1, 2),
+                g.up_loyal(1234, 1, 1, 2),
+                g.up_loyal(5678, 0, 1, 2),
+                g.up_loyal(5678, 1, 1, 2)
+            ],
+            [2, 1, 1, 2]
+        );
+        assert_eq!(
+            [
+                g.up_starve(1234, 12, 1, 2),
+                g.up_starve(1234, 19, 1, 2),
+                g.up_starve(5678, 12, 1, 2)
+            ],
+            [1, 1, 2]
+        );
+        let dier: Vec<i32> = (1..=6).map(|i| g.up_animal(1234, 52, i, 1, 1000)).collect();
+        assert_eq!(dier, [923, 945, 191, 357, 465, 857]);
+        assert_eq!(
+            [
+                g.up_corpse(1234, 0, 2),
+                g.up_corpse(5678, 0, 2),
+                g.up_corpse(9012, 0, 2)
+            ],
+            [2, 1, 1]
+        );
+        assert_eq!(
+            [
+                g.up_income(61234, 0, 50, 75),
+                g.up_income(61234, 1, 1, 8),
+                g.up_income(61234, 2, 5, 13),
+                g.up_income(61234, 3, 1, 3)
+            ],
+            [69, 5, 7, 2]
         );
     }
 }
