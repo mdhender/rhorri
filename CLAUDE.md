@@ -114,6 +114,11 @@ there.
 - `ENGINE=<path to the C olympia-g3> harness/run.sh` runs the C engine
   through the same shadow root. Every fixture should pass; use it to check the
   harness itself.
+- `harness/roundtrip.sh` compares rhorri with the C engine on load + save
+  (`-l ./lib -S`, no turn) for the fixture world and every regress fixture's
+  saved game, before and after a C turn. It diffs every `lib/` file and both
+  engines' stdout and stderr. Run it after changing the load or save code;
+  the fixtures can't catch those changes until `-r` is ported.
 
 Fixtures for the parts not yet ported will fail. Track progress by which
 fixtures pass, not by lines ported.

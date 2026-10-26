@@ -57,7 +57,7 @@ fi
 [ -x "${BIN}" ] || { echo "error: no engine binary at ${BIN}"; exit 2; }
 
 # Build the shadow root afresh.
-rm -rf "${WORK}"
+rm -rf "${WORK:?}"
 mkdir -p "${SHADOW}/build/rhorri" "${SHADOW}/run/olympia" "${LOGS}" || exit 2
 for entry in "${OLYMPIA_G3}"/* "${OLYMPIA_G3}"/.[!.]*; do
 	[ -e "${entry}" ] || continue

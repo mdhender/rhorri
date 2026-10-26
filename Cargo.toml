@@ -1,6 +1,6 @@
 [package]
 name = "rhorri"
-version = "0.3.1-beta"
+version = "0.4.0-beta"
 edition = "2024"
 rust-version = "1.85"
 description = "Rust + Rhai port of the Olympia G3 play-by-mail game engine"
@@ -14,6 +14,7 @@ name = "olympia-g3"
 path = "src/main.rs"
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
 [lints.rust]
 unsafe_code = "deny"

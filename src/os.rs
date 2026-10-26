@@ -3,7 +3,24 @@
 
 //! Operating-system error text as the C engine prints it.
 
+use std::fs::DirBuilder;
 use std::io;
+use std::os::unix::fs::DirBuilderExt;
+use std::path::{Path, PathBuf};
+
+/// `<libdir>/<name>`, joined as C's `sout("%s/%s")` does (no
+/// normalization, unlike [`Path::join`]).
+pub(crate) fn lib_path(libdir: &Path, name: &str) -> PathBuf {
+    let mut s = libdir.as_os_str().to_owned();
+    s.push("/");
+    s.push(name);
+    PathBuf::from(s)
+}
+
+/// `mkdir(path, 0755)`, ignoring errors as the C engine does.
+pub(crate) fn make_dir(path: &Path) {
+    let _ = DirBuilder::new().mode(0o755).create(path);
+}
 
 /// The `strerror()` text for an I/O error, as `perror("")` prints it.
 ///
