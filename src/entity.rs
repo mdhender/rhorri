@@ -668,12 +668,53 @@ pub struct Entity {
     pub trades: Vec<Trade>,
     /// Scratch space.
     pub temp: i32,
+    /// The next box of the same kind (`x_next_kind`); see [`Db::kind_next`].
+    x_next_kind: i32,
+    /// The next box of the same subkind (`x_next_sub`); see
+    /// [`Db::sub_next`].
+    x_next_sub: i32,
 }
 
-/// The entity table (`bx[]`).
+/// `T_MAX`: one past the highest kind.
+pub const T_MAX: usize = KIND_NAMES.len();
+
+/// `SUB_MAX`: one past the highest subkind.
+pub const SUB_MAX: usize = SUBKIND_NAMES.len();
+
+/// Which of the two box chains a link belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Chain {
+    /// Boxes of one kind (`box_head`, `x_next_kind`).
+    Kind,
+    /// Boxes of one subkind (`sub_head`, `x_next_sub`).
+    Sub,
+}
+
+/// The `static` shortcut `add_next_chain()` and `add_sub_chain()` keep: the
+/// box added last and its chain. A box numbered above it is appended to it
+/// directly if it still ends a chain.
+#[derive(Debug, Clone, Copy)]
+struct ChainCache {
+    last: i32,
+    key: i32,
+}
+
+/// The entity table (`bx[]`), with every box threaded on a chain of its
+/// kind and a chain of its subkind (`olympia/code.c`).
+///
+/// Each chain is kept in ascending box order. Like C, adding a box first
+/// tries a shortcut: if it is numbered above the last box added to the same
+/// chain, and that box has no successor, it is appended there. `delete_box`
+/// doesn't reset the shortcut, so a box added after the shortcut's box was
+/// deleted hangs off the deleted box and is lost from its chain. That is C
+/// behavior and is kept (playbymail/olympia-g3#246).
 #[derive(Debug, Clone)]
 pub struct Db {
     boxes: Vec<Option<Box<Entity>>>,
+    box_head: [i32; T_MAX],
+    sub_head: [i32; SUB_MAX],
+    kind_cache: ChainCache,
+    sub_cache: ChainCache,
 }
 
 impl Default for Db {
@@ -688,6 +729,10 @@ impl Db {
     pub fn new() -> Self {
         Self {
             boxes: vec![None; MAX_BOXES as usize],
+            box_head: [0; T_MAX],
+            sub_head: [0; SUB_MAX],
+            kind_cache: ChainCache { last: 0, key: 0 },
+            sub_cache: ChainCache { last: 0, key: -1 },
         }
     }
 
@@ -752,7 +797,9 @@ impl Db {
         self.kind(n) != Kind::DELETED
     }
 
-    /// Allocates box `n` (`alloc_box()`).
+    /// Allocates box `n` and threads it on its kind and subkind chains
+    /// (`olympia/code.c:alloc_box`). To allocate a box at a number the
+    /// `mint` stream picks, use [`Game::new_ent`](crate::game::Game::new_ent).
     ///
     /// # Panics
     ///
@@ -760,29 +807,222 @@ impl Db {
     pub fn alloc_box(&mut self, n: i32, kind: Kind, sk: Subkind) {
         assert!(n > 0 && n < MAX_BOXES, "alloc_box: box {n} out of range");
         let slot = &mut self.boxes[n as usize];
-        assert!(slot.is_none(), "alloc_box: DUP box {n}");
+        if slot.is_some() {
+            eprintln!("alloc_box: DUP box {n}");
+            panic!("alloc_box: DUP box {n}");
+        }
         *slot = Some(Box::new(Entity {
             kind,
             skind: sk,
             ..Entity::default()
         }));
+        self.add_chain(n, Chain::Kind);
+        self.add_chain(n, Chain::Sub);
     }
 
-    /// Marks box `n` deleted (`delete_box()`); it stays allocated.
+    /// Takes box `n` off its chains and marks it deleted
+    /// (`olympia/code.c:delete_box`). It stays allocated, so its number is
+    /// not reused until the next load.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is not allocated or is already deleted, as C asserts.
     pub fn delete_box(&mut self, n: i32) {
+        self.remove_chain(n, Chain::Kind);
+        self.remove_chain(n, Chain::Sub);
         self.entity_mut(n).kind = Kind::DELETED;
     }
 
-    /// The boxes of `kind` in ascending order (`loop_kind`). C keeps each
-    /// kind chain sorted by box number.
+    /// Changes box `n`'s kind, moving it to the new kind's chain
+    /// (`olympia/code.c:change_box_kind`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is not allocated or is deleted, as C asserts.
+    pub fn change_box_kind(&mut self, n: i32, kind: Kind) {
+        self.remove_chain(n, Chain::Kind);
+        self.entity_mut(n).kind = kind;
+        self.add_chain(n, Chain::Kind);
+    }
+
+    /// Changes box `n`'s subkind, moving it to the new subkind's chain
+    /// (`olympia/code.c:change_box_subkind`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is not allocated.
+    pub fn change_box_subkind(&mut self, n: i32, sk: Subkind) {
+        if self.subkind(n) == sk {
+            return;
+        }
+        self.remove_chain(n, Chain::Sub);
+        self.entity_mut(n).skind = sk;
+        self.add_chain(n, Chain::Sub);
+    }
+
+    /// The first box of `kind` (`kind_first()`), or 0.
+    #[must_use]
+    pub fn kind_first(&self, kind: Kind) -> i32 {
+        self.box_head[chain_index(i32::from(kind.0))]
+    }
+
+    /// The box after `n` on its kind chain (`kind_next()`), or 0.
+    ///
+    /// To loop as C's `loop_kind` does, read the next box before acting on
+    /// the current one: boxes added to the chain ahead of the loop are
+    /// visited, and the current box may be deleted.
+    #[must_use]
+    pub fn kind_next(&self, n: i32) -> i32 {
+        self.entity(n).x_next_kind
+    }
+
+    /// The first box of subkind `sk` (`sub_first()`), or 0.
+    #[must_use]
+    pub fn sub_first(&self, sk: Subkind) -> i32 {
+        self.sub_head[chain_index(i32::from(sk.0))]
+    }
+
+    /// The box after `n` on its subkind chain (`sub_next()`), or 0.
+    #[must_use]
+    pub fn sub_next(&self, n: i32) -> i32 {
+        self.entity(n).x_next_sub
+    }
+
+    /// The boxes on the chain of `kind` (`loop_kind`), in chain order, which
+    /// is ascending.
+    ///
+    /// This is a snapshot. It visits what `loop_kind` would as long as the
+    /// loop body doesn't add boxes of `kind`; one that does must walk the
+    /// chain with [`kind_first`](Self::kind_first) and
+    /// [`kind_next`](Self::kind_next) instead.
     #[must_use]
     pub fn boxes_of_kind(&self, kind: Kind) -> Vec<i32> {
-        if kind == Kind::DELETED {
-            return Vec::new();
+        let mut v = Vec::new();
+        let mut i = self.kind_first(kind);
+        while i > 0 {
+            v.push(i);
+            i = self.kind_next(i);
         }
-        self.allocated()
-            .filter(|&n| self.entity(n).kind == kind)
-            .collect()
+        v
+    }
+
+    /// The boxes on the chain of subkind `sk` (`loop_subkind`), in chain
+    /// order. A snapshot, like [`boxes_of_kind`](Self::boxes_of_kind).
+    #[must_use]
+    pub fn boxes_of_subkind(&self, sk: Subkind) -> Vec<i32> {
+        let mut v = Vec::new();
+        let mut i = self.sub_first(sk);
+        while i > 0 {
+            v.push(i);
+            i = self.sub_next(i);
+        }
+        v
+    }
+
+    /// The chain key of box `n`: its kind or its subkind.
+    fn chain_key(&self, n: i32, chain: Chain) -> i32 {
+        let b = self.entity(n);
+        match chain {
+            Chain::Kind => i32::from(b.kind.0),
+            Chain::Sub => i32::from(b.skind.0),
+        }
+    }
+
+    fn next_link(&self, n: i32, chain: Chain) -> i32 {
+        let b = self.entity(n);
+        match chain {
+            Chain::Kind => b.x_next_kind,
+            Chain::Sub => b.x_next_sub,
+        }
+    }
+
+    fn set_next_link(&mut self, n: i32, chain: Chain, next: i32) {
+        let b = self.entity_mut(n);
+        match chain {
+            Chain::Kind => b.x_next_kind = next,
+            Chain::Sub => b.x_next_sub = next,
+        }
+    }
+
+    fn head_mut(&mut self, chain: Chain, key: i32) -> &mut i32 {
+        let i = chain_index(key);
+        match chain {
+            Chain::Kind => &mut self.box_head[i],
+            Chain::Sub => &mut self.sub_head[i],
+        }
+    }
+
+    fn cache_mut(&mut self, chain: Chain) -> &mut ChainCache {
+        match chain {
+            Chain::Kind => &mut self.kind_cache,
+            Chain::Sub => &mut self.sub_cache,
+        }
+    }
+
+    /// Threads box `n` onto a chain in ascending order
+    /// (`olympia/code.c:add_next_chain`, `add_sub_chain`). Deleted boxes
+    /// (kind 0) go on no kind chain; subkind 0 has a chain like any other.
+    fn add_chain(&mut self, n: i32, chain: Chain) {
+        let key = self.chain_key(n, chain);
+        if chain == Chain::Kind && key == 0 {
+            return;
+        }
+
+        // The shortcut ("optim!" in C).
+        let cache = *self.cache_mut(chain);
+        if cache.key == key && n > cache.last && self.next_link(cache.last, chain) == 0 {
+            self.set_next_link(cache.last, chain, n);
+            self.set_next_link(n, chain, 0);
+            self.cache_mut(chain).last = n;
+            return;
+        }
+        *self.cache_mut(chain) = ChainCache { last: n, key };
+
+        let head = *self.head_mut(chain, key);
+        if head == 0 {
+            *self.head_mut(chain, key) = n;
+            self.set_next_link(n, chain, 0);
+            return;
+        }
+        if n < head {
+            self.set_next_link(n, chain, head);
+            *self.head_mut(chain, key) = n;
+            return;
+        }
+        let mut i = head;
+        loop {
+            let next = self.next_link(i, chain);
+            if !(next > 0 && next < n) {
+                break;
+            }
+            i = next;
+        }
+        let next = self.next_link(i, chain);
+        self.set_next_link(n, chain, next);
+        self.set_next_link(i, chain, n);
+    }
+
+    /// Takes box `n` off a chain (`olympia/code.c:remove_next_chain`,
+    /// `remove_sub_chain`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` isn't on the chain, as C asserts.
+    fn remove_chain(&mut self, n: i32, chain: Chain) {
+        let key = self.chain_key(n, chain);
+        let next = self.next_link(n, chain);
+        let head = *self.head_mut(chain, key);
+        if head == n {
+            *self.head_mut(chain, key) = next;
+        } else {
+            let mut i = head;
+            while i > 0 && self.next_link(i, chain) != n {
+                i = self.next_link(i, chain);
+            }
+            assert!(i > 0, "box {n} is not on its {chain:?} chain");
+            self.set_next_link(i, chain, next);
+        }
+        self.set_next_link(n, chain, 0);
     }
 
     /// Every allocated box number in ascending order, deleted ones included.
@@ -877,6 +1117,15 @@ impl Db {
     }
 }
 
+/// The index of a chain head for a kind or subkind.
+///
+/// # Panics
+///
+/// Panics if it has no chain; C would index past `box_head` or `sub_head`.
+fn chain_index(key: i32) -> usize {
+    usize::try_from(key).unwrap_or_else(|_| panic!("no chain for kind or subkind {key}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -916,5 +1165,43 @@ mod tests {
         assert_eq!(Kind::UNFORM.name(), "unform");
         assert_eq!(Subkind::PL_REGULAR.name(), "pl_regular");
         assert_eq!(Subkind::from_name(b"tradegood"), Some(Subkind(73)));
+    }
+
+    #[test]
+    fn chains_stay_in_box_order() {
+        let mut db = Db::new();
+        for n in [50, 10, 30, 60, 20] {
+            db.alloc_box(n, Kind::CHAR, Subkind::default());
+        }
+        db.alloc_box(40, Kind::LOC, Subkind::CITY);
+        db.alloc_box(35, Kind::LOC, Subkind::CITY);
+        assert_eq!(db.boxes_of_kind(Kind::CHAR), [10, 20, 30, 50, 60]);
+        assert_eq!(
+            db.boxes_of_subkind(Subkind::default()),
+            [10, 20, 30, 50, 60]
+        );
+        assert_eq!(db.boxes_of_subkind(Subkind::CITY), [35, 40]);
+
+        db.delete_box(30);
+        db.change_box_kind(50, Kind::DEADCHAR);
+        db.change_box_subkind(20, Subkind::CITY);
+        assert_eq!(db.boxes_of_kind(Kind::CHAR), [10, 20, 60]);
+        assert_eq!(db.boxes_of_kind(Kind::DEADCHAR), [50]);
+        assert_eq!(db.boxes_of_subkind(Subkind::CITY), [20, 35, 40]);
+        assert_eq!(db.boxes_of_subkind(Subkind::default()), [10, 50, 60]);
+        assert_eq!(db.kind(30), Kind::DELETED);
+        assert!(db.get(30).is_some(), "a deleted box stays allocated");
+    }
+
+    #[test]
+    fn a_box_added_after_the_shortcut_box_is_deleted_is_lost_as_in_c() {
+        let mut db = Db::new();
+        db.alloc_box(10, Kind::STORM, Subkind(59));
+        db.alloc_box(20, Kind::STORM, Subkind(59));
+        db.delete_box(20);
+        // C's add_next_chain() appends 30 to deleted box 20.
+        db.alloc_box(30, Kind::STORM, Subkind(59));
+        assert_eq!(db.boxes_of_kind(Kind::STORM), [10]);
+        assert_eq!(db.boxes_of_subkind(Subkind(59)), [10]);
     }
 }

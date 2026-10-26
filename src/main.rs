@@ -145,7 +145,11 @@ fn run_engine(out: &mut impl Write, opts: Options) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    game.check_db();
+    if let Err(err) = game.check_db() {
+        let _ = out.flush();
+        eprintln!("olympia-g3: {err}");
+        return ExitCode::FAILURE;
+    }
     if opts.save
         && let Err(err) = game.save_db()
     {

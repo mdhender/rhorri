@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::entity::{Db, Kind, MAX_BOXES};
 use crate::io;
+use crate::mint::Mint;
 use crate::order;
 use crate::os::lib_path;
 use crate::rnd::{LegacyRng, SaveSeedError};
@@ -52,6 +53,9 @@ pub struct Game {
     pub dot_count: i32,
     /// Set once the turn's days have run (`month_done`).
     pub month_done: bool,
+    /// The `mint` stream entity numbers are drawn from; see
+    /// [`new_ent`](Self::new_ent).
+    pub mint: Mint,
 }
 
 impl Game {
@@ -70,6 +74,7 @@ impl Game {
             cmd_wait: 0,
             dot_count: 0,
             month_done: false,
+            mint: Mint::default(),
         }
     }
 
@@ -104,7 +109,7 @@ impl Game {
         let orders = self.lib_path("orders");
         order::load_orders(&mut self.db, &orders);
 
-        self.check_db();
+        self.check_db()?;
         // determine_map_edges() only computes map routines' bounds; nothing
         // ported uses them yet.
 
@@ -131,15 +136,6 @@ impl Game {
         self.delete_deadchars();
         self.print_box_usage();
         Ok(())
-    }
-
-    /// `check_db()`: repairs inconsistencies in a loaded database.
-    ///
-    /// TODO: port the checks. They only repair a damaged database (each
-    /// repair is reported on standard error), so a consistent one loads the
-    /// same without them.
-    pub fn check_db(&mut self) {
-        stage("check_db()");
     }
 
     /// Deletes dead characters left from the last turn

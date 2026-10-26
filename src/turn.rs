@@ -28,7 +28,7 @@ use crate::os::strerror;
 pub type Phase = Result<(), NotYetImplemented>;
 
 /// Stops the run at `routine`, which isn't ported yet.
-fn not_ported(routine: &str) -> Phase {
+pub(crate) fn not_ported(routine: &str) -> Phase {
     Err(NotYetImplemented(routine.to_owned()))
 }
 
