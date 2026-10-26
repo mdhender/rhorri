@@ -21,10 +21,12 @@ Put any other scratch output, such as unpacked fixture saved games and `lib/` tr
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+harness/run.sh
 ```
 
-All three must pass before committing.
-They do not replace the olympia-g3 fixtures, which remain the spec.
+All four must pass before committing.
+`harness/run.sh` passes when every fixture in `harness/passing.txt` still passes; add each new pass it reports to that file in the same commit.
+The unit tests do not replace the olympia-g3 fixtures, which remain the spec.
 
 ## Versioning
 

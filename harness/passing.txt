@@ -1,0 +1,3 @@
+# Fixtures that pass against rhorri, as harness/run.sh names them.
+# harness/run.sh fails if any of these stops passing.
+olympia/regress/rng-selftest/check.sh

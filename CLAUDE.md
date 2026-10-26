@@ -97,13 +97,23 @@ Things the C engine relies on that a port gets wrong easily:
 
 ## The gate
 
-The port is checked by running olympia-g3's golden flow and regress
-`check.sh` scripts against the rhorri binary. Those scripts expect the binary
-at `build/<preset>/olympia-g3` in the olympia-g3 checkout. Running them
-against rhorri needs a binary override in that harness. That change is
-allowed under the C engine policy but doesn't exist yet: add it there before
-relying on it here. Until then, check against a fixture by hand: unpack its
-saved game, run the turn with both engines, and diff the `lib/` trees.
+rhorri runs olympia-g3's harness, not the other way around. `harness/run.sh`
+builds rhorri and runs olympia-g3's golden flow and regress `check.sh`
+scripts against it, unmodified and in place in the olympia-g3 checkout. The
+scripts find the engine at `${ROOT}/build/${OLYMPIA_PRESET}/olympia-g3`, so the
+runner points them at a shadow root in `tmp/harness/` whose `build/rhorri/`
+holds the rhorri binary and everything else links to olympia-g3. Nothing in
+olympia-g3 changes for the port to be checked; don't add engine overrides
+there.
+
+- `harness/run.sh` runs everything; `harness/run.sh golden` or
+  `harness/run.sh olympia/regress/<name>` runs one fixture. Logs go to
+  `tmp/harness/logs/`.
+- `harness/passing.txt` lists the fixtures rhorri passes. The runner fails
+  if one of them stops passing, and names any new pass to add.
+- `ENGINE=<path to the C olympia-g3> harness/run.sh` runs the C engine
+  through the same shadow root. Every fixture should pass; use it to check the
+  harness itself.
 
 Fixtures for the parts not yet ported will fail. Track progress by which
 fixtures pass, not by lines ported.
