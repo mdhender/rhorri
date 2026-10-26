@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! NPC tokens: artifacts that command a band of NPC units for whoever
-//! holds them (`olympia/art.c`).
+//! holds them, and the golden rings city markets restock
+//! (`olympia/art.c`).
 //!
 //! Moving a token between holders (`move_token`, `swear_token_units`) comes
 //! with the commands that move items. TODO(stage 2): the `log_write()`
 //! lines to `lib/log` and the "appears" and "melts into the ground" lines
 //! to the locations are report output.
 
+use crate::buy::SUB_SUFFUSE_RING;
 use crate::entity::{Kind, Subkind};
 use crate::game::{Game, NotYetImplemented, player};
 use crate::loc::{province, subloc};
@@ -19,7 +21,32 @@ use crate::unit::{SUB_NI, beast_capturable, item_token_ni, item_token_num, item_
 /// `sub_npc_token`.
 const SUB_NPC_TOKEN: Subkind = Subkind(63);
 
+/// The golden rings' kinds (`use_xxx_kill`, `lore_xxx_kill`), in the
+/// order `new_suffuse_ring()` picks from: barbarian, savage, corpse, orc
+/// and skeleton.
+const SUFFUSE_RINGS: [(i8, i32); 5] = [(10, 938), (11, 939), (12, 940), (13, 941), (14, 942)];
+
 impl Game {
+    /// `olympia/art.c:new_suffuse_ring`: a golden ring for the market at
+    /// `who` to sell, its kind drawn on the market's `econ` stream, which
+    /// the only caller (`trade_suffuse_ring`) has seeded. Returns its
+    /// number, or -1 if no number is free.
+    pub fn new_suffuse_ring(&mut self, who: i32) -> i32 {
+        let new = self.create_unique_item(who, SUB_SUFFUSE_RING);
+        let pick = self.economy.ring(i32::from(SUB_SUFFUSE_RING.0), who, 1, 5);
+        let (ni, lore) = SUFFUSE_RINGS[(pick - 1) as usize];
+        if new < 0 {
+            // C goes on to write through box -1.
+            return new;
+        }
+        self.db.set_name(new, b"Golden ring");
+        self.db.p_item(new).weight = 1;
+        let pm = self.db.p_item_magic(new);
+        pm.use_key = ni;
+        pm.lore = lore;
+        new
+    }
+
     /// `token_player()`: the regular faction a token's holder belongs to,
     /// or the independent player.
     fn token_player(&self, owner: i32) -> i32 {

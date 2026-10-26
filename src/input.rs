@@ -31,7 +31,7 @@ use crate::command::{CMD_TBL, find_command, oly_parse};
 use crate::entity::{Command, Kind, Text};
 use crate::game::{Game, NotYetImplemented, player};
 use crate::order::{pop_order, stop_order, top_order};
-use crate::turn::{Phase, not_ported};
+use crate::turn::Phase;
 use crate::unit::{char_gone, char_moving, is_prisoner, restore_stack_actions, restricted_control};
 use crate::wait::FlagEnt;
 
@@ -336,15 +336,15 @@ impl Game {
             self.command(who).status = status;
         }
 
-        self.check_validated_trades()
+        self.check_trades_to_check()
     }
 
     /// `if (ilist_len(trades_to_check) > 0) check_validated_trades()`.
-    fn check_validated_trades(&mut self) -> Phase {
+    fn check_trades_to_check(&mut self) -> Phase {
         if self.driver.trades_to_check.is_empty() {
             return Ok(());
         }
-        not_ported("check_validated_trades") // buy.c
+        self.check_validated_trades()
     }
 
     /// Runs command `cmd`'s start routine `start` for `who`.
@@ -583,7 +583,7 @@ impl Game {
             }
             self.command(i).days_executing += 1;
             self.finish_command(i)?;
-            self.check_validated_trades()?;
+            self.check_trades_to_check()?;
         }
 
         self.check_all_waits()?;

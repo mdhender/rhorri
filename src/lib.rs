@@ -5,6 +5,7 @@
 //! [playbymail/olympia-g3](https://github.com/playbymail/olympia-g3).
 
 pub mod art;
+pub mod buy;
 pub mod check;
 pub mod code;
 pub mod combat;
@@ -24,9 +25,11 @@ pub mod md5;
 pub mod mint;
 pub mod npc;
 pub mod order;
+pub mod produce;
 pub mod rnd;
 pub mod rng;
 pub mod savage;
+pub mod seed;
 pub mod selftest;
 pub mod storm;
 pub mod swear;

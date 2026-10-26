@@ -3,7 +3,7 @@
 
 //! Location depth and containment (`olympia/loc.c`, `olympia/u.c:loc_depth`).
 
-use crate::entity::{Db, Kind, Subkind};
+use crate::entity::{Db, Kind, Loc, Subkind, Subloc};
 use crate::system::System;
 
 /// `LOC_region`: a top-level continent or island group.
@@ -290,6 +290,82 @@ pub fn weather_here(db: &Db, where_: i32, sk: Subkind) -> i32 {
                 .map_or(0, |m| i32::from(m.storm_str))
         })
         .sum()
+}
+
+/// `rp_loc(n)`.
+fn rp_loc(db: &Db, n: i32) -> Option<&Loc> {
+    db.get(n).and_then(|b| b.loc.as_deref())
+}
+
+/// `rp_subloc(n)`.
+fn rp_subloc(db: &Db, n: i32) -> Option<&Subloc> {
+    db.get(n).and_then(|b| b.subloc.as_deref())
+}
+
+/// `loc_civ()`: a province's civilization level.
+#[must_use]
+pub fn loc_civ(db: &Db, n: i32) -> i32 {
+    rp_loc(db, n).map_or(0, |l| i32::from(l.civ))
+}
+
+/// `loc_pillage()`: how pillaged a location is.
+#[must_use]
+pub fn loc_pillage(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| i32::from(s.loot))
+}
+
+/// `loc_opium()`: a city's opium addiction level.
+#[must_use]
+pub fn loc_opium(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| s.opium_econ)
+}
+
+/// `major_city()`.
+#[must_use]
+pub fn major_city(db: &Db, n: i32) -> bool {
+    rp_subloc(db, n).is_some_and(|s| s.major != 0)
+}
+
+/// `castle_level()`.
+#[must_use]
+pub fn castle_level(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| i32::from(s.castle_lev))
+}
+
+/// `mine_depth()`: a mine's depth in levels of three shafts.
+#[must_use]
+pub fn mine_depth(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| i32::from(s.shaft_depth) / 3)
+}
+
+/// `loc_link_open()`: how many more months a link stays open.
+#[must_use]
+pub fn loc_link_open(db: &Db, n: i32) -> i32 {
+    rp_subloc(db, n).map_or(0, |s| i32::from(s.link_open))
+}
+
+/// `loop_all_here` (`olympia/loc.c:all_here`): everything in `who`, depth
+/// first: each box directly in it, followed by what is inside that one.
+///
+/// # Panics
+///
+/// Panics if `who` or anything in it isn't a valid box, as C asserts.
+#[must_use]
+pub fn all_here(db: &Db, who: i32) -> Vec<i32> {
+    fn add_here(db: &Db, who: i32, l: &mut Vec<i32>) {
+        assert!(db.valid_box(who), "add_here: invalid box {who}");
+        l.push(who);
+        for &i in db.entity(who).loc_info.here_list.as_slice() {
+            add_here(db, i, l);
+        }
+    }
+
+    assert!(db.valid_box(who), "all_here: invalid box {who}");
+    let mut l = Vec::new();
+    for &i in db.entity(who).loc_info.here_list.as_slice() {
+        add_here(db, i, &mut l);
+    }
+    l
 }
 
 #[cfg(test)]

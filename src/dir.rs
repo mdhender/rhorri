@@ -12,16 +12,15 @@
 //! `rand` set shuffles from it in turn. See olympia-g3's
 //! `doc/claude/rng-streams.md`.
 //!
-//! Only the exits NPC movement takes are here: a province's exits in the
-//! six directions (`province_exits`). The rest of `exits_from_loc` (the
-//! ways into and out of sublocations, buildings and ships, and hidden
-//! roads) belongs with the `move` command.
+//! `exits_from_loc` lists every exit, including the ways into and out of
+//! sublocations, buildings and ships, and hidden roads; NPC movement takes
+//! only a province's exits in the six directions (`province_exits`).
 
-use crate::entity::{Db, Subkind};
+use crate::entity::{Db, Kind, Subkind};
 use crate::game::Game;
 use crate::loc::{
-    LOC_BUILD, LOC_PROVINCE, LOC_SUBLOC, here_list, is_ship, is_ship_notdone, loc_depth,
-    loc_hidden, province, region,
+    LOC_BUILD, LOC_PROVINCE, LOC_SUBLOC, here_list, is_loc_or_ship, is_ship, is_ship_notdone,
+    loc_depth, loc_hidden, loc_link_open, province, region,
 };
 use crate::lore::test_known;
 use crate::rng::{Stream, Tag};
@@ -420,6 +419,175 @@ impl Game {
                 self.add_province_exit(who, where_, n, dir, l);
             }
         }
+    }
+
+    /// `province_sub_exits()`: the ways into what is inside a province,
+    /// and the open links into it.
+    fn province_sub_exits(&self, who: i32, where_: i32, l: &mut Vec<ExitView>) {
+        for i in here_list(&self.db, where_) {
+            if is_loc_or_ship(&self.db, i) {
+                self.add_province_exit(who, where_, i, DIR_IN, l);
+            }
+        }
+        let link_from = self
+            .db
+            .entity(where_)
+            .subloc
+            .as_ref()
+            .map(|p| p.link_from.as_slice().to_vec());
+        for i in link_from.unwrap_or_default() {
+            if loc_link_open(&self.db, i) != 0 {
+                self.add_province_exit(who, where_, i, DIR_IN, l);
+            }
+        }
+    }
+
+    /// `subloc_exits()`: from a sublocation, out to sea from a port city,
+    /// in to what it holds, out to where it is, and along its open links.
+    fn subloc_exits(&self, who: i32, where_: i32, l: &mut Vec<ExitView>) {
+        let db = &self.db;
+        if is_port_city(db, where_) {
+            let p = province(db, where_);
+            for dir in DIR_N..=DIR_W {
+                let n = location_direction(db, p, dir);
+                if n != 0 && db.subkind(n) == Subkind::OCEAN {
+                    self.add_province_exit(who, where_, n, dir, l);
+                }
+            }
+        }
+        for i in here_list(db, where_) {
+            if is_loc_or_ship(db, i) {
+                self.add_province_exit(who, where_, i, DIR_IN, l);
+            }
+        }
+        self.add_province_exit(who, where_, db.loc(where_), DIR_OUT, l);
+
+        if loc_link_open(db, where_) != 0 {
+            let link_to = db
+                .entity(where_)
+                .subloc
+                .as_ref()
+                .map(|p| p.link_to.as_slice().to_vec());
+            for i in link_to.unwrap_or_default() {
+                self.add_province_exit(who, where_, i, 0, l);
+            }
+        }
+    }
+
+    /// `ship_exits()`: from a ship, out to where it is, and over to every
+    /// other ship there, even one that has left (combat needs the link).
+    fn ship_exits(&self, who: i32, ship: i32, l: &mut Vec<ExitView>) {
+        let db = &self.db;
+        assert!(is_ship_either(db, ship), "ship_exits: {ship} is not a ship");
+        let outer_loc = db.loc(ship);
+        self.add_province_exit(who, ship, outer_loc, DIR_OUT, l);
+        for i in here_list(db, outer_loc) {
+            if i != ship && is_ship_either(db, i) {
+                self.add_province_exit(who, ship, i, 0, l);
+            }
+        }
+    }
+
+    /// `building_exits()`: out of a building or ship, and in to what it
+    /// holds.
+    fn building_exits(&self, who: i32, where_: i32, l: &mut Vec<ExitView>) {
+        let db = &self.db;
+        if is_ship_either(db, where_) {
+            self.ship_exits(who, where_, l);
+        } else {
+            self.add_province_exit(who, where_, db.loc(where_), DIR_OUT, l);
+        }
+        for i in here_list(db, where_) {
+            if is_loc_or_ship(db, i) {
+                self.add_province_exit(who, where_, i, DIR_IN, l);
+            }
+        }
+    }
+
+    /// `extra_routes()`: the roads out of `where_`, hidden ones included.
+    fn extra_routes(&self, who: i32, where_: i32, l: &mut Vec<ExitView>) {
+        let db = &self.db;
+        for i in here_list(db, where_) {
+            if db.kind(i) != Kind::ROAD {
+                continue;
+            }
+            let gate = db.entity(i).gate.as_deref();
+            let dest = gate.map_or(0, |g| g.to_loc);
+            assert!(db.valid_box(dest), "extra_routes: road {i} to {dest}");
+            let road_hidden = gate.is_some_and(|g| g.road_hidden != 0);
+            let (where_sk, dest_sk) = (db.subkind(where_), db.subkind(dest));
+
+            let mut v = ExitView {
+                orig: where_,
+                destination: dest,
+                distance: exit_distance(db, where_, dest),
+                road: i,
+                ..ExitView::default()
+            };
+            // Surface-cloud links are impassable (except by flying).
+            if (where_sk == Subkind::MOUNTAIN && dest_sk == Subkind::CLOUD)
+                || (where_sk == Subkind::CLOUD && dest_sk == Subkind::MOUNTAIN)
+            {
+                v.impassable = true;
+            }
+            if road_hidden {
+                v.orig_hidden = true;
+                v.dest_hidden = true;
+                if !test_known(db, who, i) {
+                    v.hidden = true;
+                }
+            }
+            if region(db, where_) != region(db, dest) {
+                v.inside = region(db, dest);
+            }
+            if where_sk == Subkind::OCEAN || dest_sk == Subkind::OCEAN {
+                v.water = true;
+            }
+            l.push(v);
+        }
+    }
+
+    /// `exits_from_loc()`: every exit from `where_`, as `who` sees it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `where_` is a region, as C asserts.
+    #[must_use]
+    pub fn exits_from_loc(&self, who: i32, where_: i32) -> Vec<ExitView> {
+        let mut l = Vec::new();
+        match loc_depth(&self.db, where_) {
+            LOC_PROVINCE => {
+                self.province_exits(who, where_, &mut l);
+                self.province_sub_exits(who, where_, &mut l);
+            }
+            LOC_SUBLOC => self.subloc_exits(who, where_, &mut l),
+            LOC_BUILD => {
+                self.province_exits(who, where_, &mut l);
+                self.building_exits(who, where_, &mut l);
+            }
+            depth => {
+                eprintln!("where={where_}, depth={depth}");
+                panic!("exits_from_loc: {where_} is at depth {depth}");
+            }
+        }
+        self.extra_routes(who, where_, &mut l);
+        l
+    }
+
+    /// `has_ocean_access()`: 0 if `where_` has no water exit, 1 if its
+    /// only water exits are impassable, and 2 if one is passable (though
+    /// perhaps hidden).
+    #[must_use]
+    pub fn has_ocean_access(&self, where_: i32) -> i32 {
+        let mut ret = 0;
+        for v in self.exits_from_loc(0, where_).iter().filter(|v| v.water) {
+            if !v.impassable {
+                ret = 2;
+            } else if ret == 0 {
+                ret = 1;
+            }
+        }
+        ret
     }
 
     /// `exits_from_loc_nsew()`: a province's exits in the six directions,

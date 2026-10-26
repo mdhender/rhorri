@@ -18,11 +18,19 @@
 use std::fs::{self, File};
 
 use crate::command::find_command;
+use crate::entity::Subkind;
 use crate::entity::{Kind, MONTH_DAYS};
 use crate::game::{Game, NotYetImplemented, player, stage};
-use crate::loc::{LOC_PROVINCE, loc_depth, subloc, viewloc};
+use crate::loc::{
+    LOC_PROVINCE, all_here, castle_level, loc_depth, major_city, province, subloc, viewloc,
+};
 use crate::lore::{scan_char_item_lore, scan_char_skill_lore};
 use crate::os::strerror;
+use crate::seed::ITEM_TAX_COOKIE;
+use crate::unit::{has_item, item_unique};
+
+/// `RELIC_CROWN`: the Crown of Prosperity.
+const RELIC_CROWN: i32 = 402;
 
 /// The result of a phase: done, or stopped at a routine not ported yet.
 pub type Phase = Result<(), NotYetImplemented>;
@@ -79,7 +87,7 @@ impl Game {
             self.system.sysclock.increment();
 
             if self.system.sysclock.day == 1 {
-                not_ported("match_all_trades")?; // task 9 (buy.c)
+                self.match_all_trades()?;
             }
 
             self.print_dot(b'.');
@@ -184,7 +192,7 @@ impl Game {
             not_ported("special_locs_close")?; // task 10
         }
 
-        not_ported("move_city_gold")?; // task 9
+        self.move_city_gold()?;
         not_ported("garrison_gold")?; // task 10
         not_ported("collect_taxes")?; // task 10
         not_ported("add_claim_gold")?; // task 10
@@ -209,7 +217,7 @@ impl Game {
         self.storm_decay()?;
         self.storm_move();
         not_ported("collapsed_mine_decay")?; // task 10
-        self.post_production()?;
+        self.post_production();
         if self.system.auto_quit_turns > 0 {
             not_ported("auto_drop")?; // task 10
         }
@@ -228,27 +236,110 @@ impl Game {
         not_ported("animal_deaths")
     }
 
-    /// `olympia/day.c:post_production`: the month's production and market
-    /// restock. Task 9. Also run once by `load_db()` on a new world.
-    fn post_production(&mut self) -> Phase {
-        self.compute_civ_levels()?;
-        self.location_trades()?;
-        not_ported("location_production")?; // task 9 (produce.c)
-        not_ported("seed_taxes")?; // task 9 (produce.c)
+    /// `olympia/day.c:post_production`: the month's civilization levels,
+    /// market restock, production and tax base. Also run once by
+    /// `load_db()` on a new world.
+    pub(crate) fn post_production(&mut self) {
+        self.compute_civ_levels();
+        self.location_trades();
+        self.location_production();
+        self.seed_taxes();
         self.system.post_has_been_run = 1;
-        Ok(())
     }
 
-    /// `olympia/day.c:compute_civ_levels`. Task 9.
-    fn compute_civ_levels(&mut self) -> Phase {
+    /// `olympia/day.c:compute_civ_levels`: each province's civilization
+    /// level. A province scores for the first castle (by its level),
+    /// tower, temple, inn, mine and city (double for a major city) inside
+    /// it, and the Crown of Prosperity adds where it is. A province then
+    /// rises to half of any neighbour's score, until nothing changes; the
+    /// level is a quarter of the score.
+    fn compute_civ_levels(&mut self) {
+        let db = &mut self.db;
+        let crown_loc = if db.get(RELIC_CROWN).is_some() {
+            province(db, item_unique(db, RELIC_CROWN))
+        } else {
+            -1
+        };
         stage("compute_civ_levels()");
-        not_ported("compute_civ_levels")
+
+        // clear_temps(T_loc)
+        for i in db.boxes_of_kind(Kind::LOC) {
+            db.entity_mut(i).temp = 0;
+        }
+        if db.valid_box(crown_loc) {
+            db.entity_mut(crown_loc).temp += 8; // the crown gives +2 civ
+        }
+
+        let provinces: Vec<i32> = db
+            .boxes_of_kind(Kind::LOC)
+            .into_iter()
+            .filter(|&i| loc_depth(db, i) == LOC_PROVINCE)
+            .collect();
+
+        for &where_ in &provinces {
+            // Each kind of place scores once per province.
+            let mut scored: Vec<Subkind> = Vec::new();
+            for i in all_here(db, where_) {
+                let sk = db.subkind(i);
+                let points = match sk {
+                    Subkind::CASTLE => 6 + castle_level(db, i),
+                    Subkind::TOWER | Subkind::TEMPLE | Subkind::INN | Subkind::MINE => 4,
+                    Subkind::CITY if major_city(db, i) => 8,
+                    Subkind::CITY => 4,
+                    _ => continue,
+                };
+                if !scored.contains(&sk) {
+                    scored.push(sk);
+                    let p = province(db, i);
+                    db.entity_mut(p).temp += points;
+                }
+            }
+        }
+
+        loop {
+            let mut flag = false;
+            for &where_ in &provinces {
+                if db.subkind(where_) == Subkind::OCEAN {
+                    continue;
+                }
+                // loop_prov_dest
+                let dests = db
+                    .entity(where_)
+                    .loc
+                    .as_ref()
+                    .map(|p| p.prov_dest.as_slice().to_vec())
+                    .unwrap_or_default();
+                for i in dests {
+                    if i == 0 {
+                        continue;
+                    }
+                    let dest_civ = db.entity(i).temp / 2;
+                    if dest_civ > db.entity(where_).temp {
+                        db.entity_mut(where_).temp = dest_civ;
+                        flag = true;
+                    }
+                }
+            }
+            if !flag {
+                break;
+            }
+        }
+
+        for &where_ in &provinces {
+            let civ = db.entity(where_).temp / 4;
+            db.p_loc(where_).civ = civ as i8;
+        }
     }
 
-    /// `olympia/buy.c:location_trades`. Task 9.
-    fn location_trades(&mut self) -> Phase {
-        stage("location_trades()");
-        not_ported("location_trades")
+    /// `olympia/day.c:move_city_gold`: moves each city's tax base out to
+    /// its province, where it can be collected.
+    fn move_city_gold(&mut self) -> Phase {
+        for i in self.db.boxes_of_subkind(Subkind::CITY) {
+            let prov = province(&self.db, i);
+            let has = has_item(&self.db, i, ITEM_TAX_COOKIE);
+            self.move_item(i, prov, ITEM_TAX_COOKIE, has)?;
+        }
+        Ok(())
     }
 
     /// `olympia/garr.c:determine_noble_ranks`. Task 10.

@@ -691,9 +691,13 @@ pub struct Trade {
     pub who: i32,
 }
 
-/// `BUY` and `SELL` trade kinds.
+/// The trade kinds: a unit's or a city's offers to buy or sell
+/// (`BUY`, `SELL`), and the standing production and consumption a city's
+/// offers are restocked from (`PRODUCE`, `CONSUME`).
 pub const BUY: i32 = 1;
 pub const SELL: i32 = 2;
+pub const PRODUCE: i32 = 3;
+pub const CONSUME: i32 = 4;
 
 /// An entity (`struct box`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1162,6 +1166,16 @@ impl Db {
     /// `p_misc(n)`: the misc struct, allocated on demand.
     pub fn p_misc(&mut self, n: i32) -> &mut Misc {
         self.entity_mut(n).misc.get_or_insert_with(Box::default)
+    }
+
+    /// `p_loc(n)`: the location struct, allocated on demand.
+    pub fn p_loc(&mut self, n: i32) -> &mut Loc {
+        self.entity_mut(n).loc.get_or_insert_with(Box::default)
+    }
+
+    /// `p_subloc(n)`: the sublocation struct, allocated on demand.
+    pub fn p_subloc(&mut self, n: i32) -> &mut Subloc {
+        self.entity_mut(n).subloc.get_or_insert_with(Box::default)
     }
 
     /// `p_disp(n)`: the attitude struct, allocated on demand.

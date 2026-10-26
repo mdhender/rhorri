@@ -24,6 +24,8 @@ const SKILL_KNOW: i8 = 2;
 const ITEM_GHOST_WARRIOR: i32 = 18;
 /// `item_gold`.
 pub const ITEM_GOLD: i32 = 1;
+/// `sub_npc_token`.
+const SUB_NPC_TOKEN: Subkind = Subkind(63);
 
 /// `rp_char(n)`.
 fn rp_char(db: &Db, n: i32) -> Option<&Char> {
@@ -417,19 +419,121 @@ impl Game {
         self.investigate_possible_trade(who, item, old);
     }
 
+    /// `olympia/u.c:sub_item`: takes `qty` of `item` from `who`, if it
+    /// holds that many. Returns whether it did.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `who` or `item` isn't a valid box, or `qty` is negative,
+    /// as C asserts.
+    fn sub_item(&mut self, who: i32, item: i32, qty: i32) -> bool {
+        assert!(self.db.valid_box(who), "sub_item: invalid box {who}");
+        assert!(self.db.valid_box(item), "sub_item: invalid item {item}");
+        assert!(qty >= 0, "sub_item: qty {qty}");
+        match self
+            .db
+            .entity_mut(who)
+            .items
+            .iter_mut()
+            .find(|e| e.item == item)
+        {
+            Some(e) if e.qty >= qty => {
+                e.qty -= qty;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// `olympia/u.c:consume_item`: uses up `qty` of an ordinary item.
+    /// Returns whether `who` had that many.
+    ///
+    /// # Panics
+    ///
+    /// Panics for a unique item, as C asserts.
+    pub fn consume_item(&mut self, who: i32, item: i32, qty: i32) -> bool {
+        assert_eq!(
+            item_unique(&self.db, item),
+            0,
+            "consume_item: unique {item}"
+        );
+        self.sub_item(who, item, qty)
+    }
+
+    /// `olympia/u.c:move_item`: moves `qty` of `item` from `from` to `to`;
+    /// to 0 discards them (`drop_item`). Returns whether `from` had that
+    /// many.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] for dropping a unique item (which goes
+    /// to the province, for EXPLORE to find) and for moving an NPC token
+    /// (`move_token`), both of which come with the item commands.
+    ///
+    /// # Panics
+    ///
+    /// Panics if more than one of a unique item is moved, as C asserts.
+    pub fn move_item(
+        &mut self,
+        from: i32,
+        to: i32,
+        item: i32,
+        qty: i32,
+    ) -> Result<bool, NotYetImplemented> {
+        if qty <= 0 {
+            return Ok(true);
+        }
+        if to == 0 {
+            // drop_item()
+            if item_unique(&self.db, item) == 0 {
+                return Ok(self.consume_item(from, item, qty));
+            }
+            return Err(NotYetImplemented("drop_item (unique item)".to_owned()));
+        }
+        if !self.sub_item(from, item, qty) {
+            return Ok(false);
+        }
+        self.add_item(to, item, qty);
+        if item_unique(&self.db, item) != 0 {
+            assert_eq!(qty, 1, "move_item: {qty} of unique {item}");
+            self.db.p_item(item).who_has = to;
+            if self.db.subkind(item) == SUB_NPC_TOKEN {
+                return Err(NotYetImplemented("move_token".to_owned()));
+            }
+        }
+        Ok(true)
+    }
+
+    /// `olympia/u.c:create_unique_item`: a new unique item of subkind `sk`
+    /// (numbered on the `mint` stream), given to `who`. Returns its number,
+    /// or -1 if no number is free.
+    pub fn create_unique_item(&mut self, who: i32, sk: Subkind) -> i32 {
+        let new = self.new_ent(Kind::ITEM, sk);
+        if new < 0 {
+            return -1;
+        }
+        self.db.p_item(new).who_has = who;
+        self.add_item(who, new, 1);
+        new
+    }
+
     /// `olympia/buy.c:investigate_possible_trade`: queues `who` for trade
     /// matching if, now that it holds more of `item` than its `old_has`,
     /// a buy (for gold) or a sell of the item might go through.
     fn investigate_possible_trade(&mut self, who: i32, item: i32, old_has: i32) {
-        let trades = &self.db.entity(who).trades;
+        let db = &self.db;
+        // loop_trade skips trades for invalid items and spent trades.
+        let trades = db
+            .entity(who)
+            .trades
+            .iter()
+            .filter(|t| db.valid_box(t.item) && t.qty > 0);
         let check = if item == ITEM_GOLD {
             trades
-                .iter()
                 .filter(|t| t.kind == BUY)
                 .any(|t| (old_has - t.have_left) / t.cost < t.qty)
         } else {
             trades
-                .iter()
                 .filter(|t| t.kind == SELL && t.item == item)
                 .any(|t| old_has - t.have_left < t.qty)
         };

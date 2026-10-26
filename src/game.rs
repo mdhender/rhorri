@@ -8,6 +8,7 @@ use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::buy::Economy;
 use crate::dir::ExitDir;
 use crate::entity::{Db, Kind, MAX_BOXES};
 use crate::hades::HadesRng;
@@ -72,6 +73,8 @@ pub struct Game {
     pub npc_rng: NpcRng,
     /// The `hads` turn stream; see [`crate::hades`].
     pub hades: HadesRng,
+    /// The `econ` stream as last seeded; see [`crate::buy`].
+    pub economy: Economy,
     /// The savage units in the world, as `init_savage_attacks` last counted
     /// them (`olympia/savage.c:num_savages`).
     pub num_savages: i32,
@@ -99,6 +102,7 @@ impl Game {
             exitdir: ExitDir::default(),
             npc_rng: NpcRng::default(),
             hades: HadesRng::default(),
+            economy: Economy::default(),
             num_savages: 0,
         }
     }
@@ -138,9 +142,13 @@ impl Game {
         // determine_map_edges() only computes map routines' bounds; nothing
         // ported uses them yet.
 
+        if self.system.post_has_been_run == 0 {
+            stage("INIT: post_production()");
+            self.post_production();
+        }
+
         let s = &self.system;
         let missing = [
-            (s.post_has_been_run == 0, "post_production"),
             (s.seed_has_been_run == 0, "seed_initial_locations"),
             (s.faery_region == 0, "create_faery"),
             (s.hades_region == 0, "create_hades"),
