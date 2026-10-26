@@ -761,13 +761,25 @@ enum Chain {
     Sub,
 }
 
-/// The `static` shortcut `add_next_chain()` and `add_sub_chain()` keep: the
-/// box added last and its chain. A box numbered above it is appended to it
-/// directly if it still ends a chain.
+/// The shortcut `add_next_chain()` and `add_sub_chain()` keep: the box added
+/// last and its chain. A box numbered above it is appended to it directly if
+/// it still ends a chain. Removing that box from its chain drops the
+/// shortcut.
 #[derive(Debug, Clone, Copy)]
 struct ChainCache {
     last: i32,
     key: i32,
+}
+
+impl ChainCache {
+    /// No shortcut: C's initial and cleared value, whose key matches no box
+    /// added to `chain` (kind 0 boxes go on no kind chain).
+    const fn empty(chain: Chain) -> Self {
+        match chain {
+            Chain::Kind => Self { last: 0, key: 0 },
+            Chain::Sub => Self { last: 0, key: -1 },
+        }
+    }
 }
 
 /// The entity table (`bx[]`), with every box threaded on a chain of its
@@ -775,10 +787,9 @@ struct ChainCache {
 ///
 /// Each chain is kept in ascending box order. Like C, adding a box first
 /// tries a shortcut: if it is numbered above the last box added to the same
-/// chain, and that box has no successor, it is appended there. `delete_box`
-/// doesn't reset the shortcut, so a box added after the shortcut's box was
-/// deleted hangs off the deleted box and is lost from its chain. That is C
-/// behavior and is kept (playbymail/olympia-g3#246).
+/// chain, and that box has no successor, it is appended there. Taking that
+/// box off its chain (`delete_box`, a kind or subkind change) resets the
+/// shortcut (`olympia/code.c:remove_next_chain`, `remove_sub_chain`).
 #[derive(Debug, Clone)]
 pub struct Db {
     boxes: Vec<Option<Box<Entity>>>,
@@ -802,8 +813,8 @@ impl Db {
             boxes: vec![None; MAX_BOXES as usize],
             box_head: [0; T_MAX],
             sub_head: [0; SUB_MAX],
-            kind_cache: ChainCache { last: 0, key: 0 },
-            sub_cache: ChainCache { last: 0, key: -1 },
+            kind_cache: ChainCache::empty(Chain::Kind),
+            sub_cache: ChainCache::empty(Chain::Sub),
         }
     }
 
@@ -1094,6 +1105,10 @@ impl Db {
             self.set_next_link(i, chain, next);
         }
         self.set_next_link(n, chain, 0);
+
+        if n == self.cache_mut(chain).last {
+            *self.cache_mut(chain) = ChainCache::empty(chain);
+        }
     }
 
     /// Every allocated box number in ascending order, deleted ones included.
@@ -1280,14 +1295,14 @@ mod tests {
     }
 
     #[test]
-    fn a_box_added_after_the_shortcut_box_is_deleted_is_lost_as_in_c() {
+    fn a_box_added_after_the_shortcut_box_is_deleted_is_on_its_chains() {
         let mut db = Db::new();
         db.alloc_box(10, Kind::STORM, Subkind(59));
         db.alloc_box(20, Kind::STORM, Subkind(59));
         db.delete_box(20);
-        // C's add_next_chain() appends 30 to deleted box 20.
+        // Deleting 20 dropped the shortcut, so 30 is not appended to it.
         db.alloc_box(30, Kind::STORM, Subkind(59));
-        assert_eq!(db.boxes_of_kind(Kind::STORM), [10]);
-        assert_eq!(db.boxes_of_subkind(Subkind(59)), [10]);
+        assert_eq!(db.boxes_of_kind(Kind::STORM), [10, 30]);
+        assert_eq!(db.boxes_of_subkind(Subkind(59)), [10, 30]);
     }
 }
