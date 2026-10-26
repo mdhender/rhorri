@@ -46,13 +46,6 @@ impl Mint {
     /// Picks a free box in `low..=high` (`rnd_alloc_num()`): draws a start
     /// point, then takes the first free box at or above it, wrapping around
     /// to `low`. Returns `None` if the range is full.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the search reaches box `MAX_BOXES`. C's callers pass
-    /// `high = MAX_BOXES`, one past the end of `bx[]`, and C reads past the
-    /// end of the table there, so there is no behavior to copy
-    /// (playbymail/olympia-g3#245).
     fn alloc_num(
         &mut self,
         db: &Db,
@@ -62,14 +55,7 @@ impl Mint {
         high: i32,
     ) -> Option<i32> {
         let n = self.stream(master, turn).draw(low, high);
-        let free = |i: i32| {
-            assert!(
-                i < MAX_BOXES,
-                "rnd_alloc_num: C reads bx[{i}], past the end of the table"
-            );
-            db.get(i).is_none()
-        };
-        (n..=high).chain(low..n).find(|&i| free(i))
+        (n..=high).chain(low..n).find(|&i| db.get(i).is_none())
     }
 }
 
@@ -78,8 +64,8 @@ impl Game {
     /// `mint` stream, and returns the number (`olympia/code.c:new_ent`).
     ///
     /// Each kind has its own number range, tried first: players 50000-56759,
-    /// characters 1000-9999 (noble items 79000 and up), cities 56760-58759,
-    /// regions 58760-58999, provinces 20000-49999, storms 79000 and up, and
+    /// characters 1000-9999 (noble items 79000-149999), cities 56760-58759,
+    /// regions 58760-58999, provinces 20000-49999, storms 79000-149999, and
     /// sublocations and everything else 59000-78999. A full range falls back
     /// to others; each range tried takes one draw.
     ///
@@ -98,12 +84,12 @@ impl Game {
             Kind::PLAYER => alloc(50000, 56759),
             Kind::CHAR | Kind::UNFORM => {
                 let n = if sk == SUB_NI {
-                    alloc(79000, MAX_BOXES)
+                    alloc(79000, MAX_BOXES - 1)
                 } else {
                     alloc(1000, 9999)
                 };
                 n.or_else(|| alloc(59000, 78999))
-                    .or_else(|| alloc(79000, MAX_BOXES))
+                    .or_else(|| alloc(79000, MAX_BOXES - 1))
             }
             Kind::SKILL => panic!("new_ent: skills are not allocated"),
             Kind::LOC => match sk {
@@ -116,10 +102,10 @@ impl Game {
                 | Subkind::TUNNEL => alloc(20000, 49999),
                 _ => alloc(59000, 78999),
             },
-            Kind::STORM => alloc(79000, MAX_BOXES),
+            Kind::STORM => alloc(79000, MAX_BOXES - 1),
             _ => alloc(59000, 78999),
         };
-        let n = n.or_else(|| alloc(79000, MAX_BOXES)).unwrap_or(-1);
+        let n = n.or_else(|| alloc(79000, MAX_BOXES - 1)).unwrap_or(-1);
 
         self.db.alloc_box(n, kind, sk);
         n
