@@ -10,6 +10,8 @@ pub mod entity;
 pub mod game;
 pub mod io;
 pub mod lines;
+pub mod loc;
+pub mod lore;
 pub mod md5;
 pub mod order;
 pub mod rnd;
@@ -18,5 +20,6 @@ pub mod selftest;
 pub mod system;
 pub mod times;
 pub mod trade_route;
+pub mod turn;
 
 mod os;

@@ -120,7 +120,56 @@ pub struct Subkind(pub i8);
 
 impl Subkind {
     pub const OCEAN: Self = Self(1);
+    pub const FOREST: Self = Self(2);
+    pub const PLAIN: Self = Self(3);
+    pub const MOUNTAIN: Self = Self(4);
+    pub const DESERT: Self = Self(5);
+    pub const SWAMP: Self = Self(6);
+    pub const UNDER: Self = Self(7);
+    pub const FAERY_HILL: Self = Self(8);
+    pub const ISLAND: Self = Self(9);
+    pub const STONE_CIR: Self = Self(10);
+    pub const MALLORN_GROVE: Self = Self(11);
+    pub const BOG: Self = Self(12);
+    pub const CAVE: Self = Self(13);
+    pub const CITY: Self = Self(14);
+    pub const LAIR: Self = Self(15);
+    pub const GRAVEYARD: Self = Self(16);
+    pub const RUINS: Self = Self(17);
+    pub const BATTLEFIELD: Self = Self(18);
+    pub const ENCH_FOREST: Self = Self(19);
+    pub const ROCKY_HILL: Self = Self(20);
+    pub const TREE_CIRCLE: Self = Self(21);
+    pub const PITS: Self = Self(22);
+    pub const PASTURE: Self = Self(23);
+    pub const OASIS: Self = Self(24);
+    pub const YEW_GROVE: Self = Self(25);
+    pub const SAND_PIT: Self = Self(26);
+    pub const SACRED_GROVE: Self = Self(27);
+    pub const POPPY_FIELD: Self = Self(28);
+    pub const TEMPLE: Self = Self(29);
+    pub const GALLEY: Self = Self(30);
+    pub const ROUNDSHIP: Self = Self(31);
+    pub const CASTLE: Self = Self(32);
+    pub const GALLEY_NOTDONE: Self = Self(33);
+    pub const ROUNDSHIP_NOTDONE: Self = Self(34);
+    pub const GHOST_SHIP: Self = Self(35);
+    pub const TEMPLE_NOTDONE: Self = Self(36);
+    pub const INN: Self = Self(37);
+    pub const INN_NOTDONE: Self = Self(38);
+    pub const CASTLE_NOTDONE: Self = Self(39);
+    pub const MINE: Self = Self(40);
+    pub const MINE_NOTDONE: Self = Self(41);
+    pub const TOWER: Self = Self(46);
+    pub const TOWER_NOTDONE: Self = Self(47);
     pub const PL_REGULAR: Self = Self(49);
+    pub const REGION: Self = Self(50);
+    pub const MINE_COLLAPSED: Self = Self(53);
+    pub const HADES_PIT: Self = Self(60);
+    pub const CLOUD: Self = Self(65);
+    pub const TUNNEL: Self = Self(70);
+    pub const SEWER: Self = Self(71);
+    pub const CHAMBER: Self = Self(72);
 
     /// The subkind's name in the data files (`subkind_s[]`).
     ///
@@ -230,6 +279,36 @@ pub struct OlyTime {
     pub days_since_epoch: i32,
 }
 
+/// `MONTH_DAYS`: days in a game month (a turn).
+pub const MONTH_DAYS: i16 = 30;
+
+/// `NUM_MONTHS`: game months in a year.
+pub const NUM_MONTHS: i32 = 8;
+
+impl OlyTime {
+    /// Advances to the next day (`olympia/u.c:olytime_increment`).
+    pub fn increment(&mut self) {
+        self.days_since_epoch += 1;
+        // C's `short` increment truncates on the store.
+        self.day = self.day.wrapping_add(1);
+    }
+
+    /// Readies the clock for the next turn: day 0 of the next turn
+    /// (`olympia/u.c:olytime_turn_change`). Day 1 follows from
+    /// [`increment`](Self::increment); the days since the epoch don't move
+    /// until then.
+    pub fn turn_change(&mut self) {
+        self.day = 0;
+        self.turn = self.turn.wrapping_add(1);
+    }
+
+    /// `oly_month()`: the month of the year, 0-based. It is -1 at turn 0.
+    #[must_use]
+    pub fn month(&self) -> i32 {
+        (i32::from(self.turn) - 1) % NUM_MONTHS
+    }
+}
+
 /// Where an entity is and what is in it (`struct loc_info`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LocInfo {
@@ -278,6 +357,11 @@ pub struct Player {
     pub dont_remind: i8,
     pub compuserve: i8,
     pub broken_mailer: i8,
+    /// The locations the faction's units touched this turn (`locs`). Not
+    /// saved; the reports read it.
+    pub locs: IList,
+    /// The lore sheets owed this turn (`deliver_lore`). Not saved.
+    pub deliver_lore: IList,
 }
 
 /// Attitudes (`struct att_ent`).

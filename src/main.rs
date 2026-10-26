@@ -47,6 +47,8 @@ struct Options {
     libdir: Option<OsString>,
     pretty: bool,
     save: bool,
+    /// `-r`: run a turn.
+    run: bool,
     test_use_const_report_date: bool,
     trade_route_seed: Option<u64>,
     /// Set options rhorri can't act on yet.
@@ -135,6 +137,14 @@ fn run_engine(out: &mut impl Write, opts: Options) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    if opts.run
+        && let Err(err) = game.run_turn(false)
+    {
+        let _ = out.flush();
+        eprintln!("olympia-g3: {err}");
+        return ExitCode::FAILURE;
+    }
+
     game.check_db();
     if opts.save
         && let Err(err) = game.save_db()
@@ -143,6 +153,8 @@ fn run_engine(out: &mut impl Write, opts: Options) -> ExitCode {
         eprintln!("{err}");
         return ExitCode::FAILURE;
     }
+    // TODO(stage 2): with -r and -S, save_logdir() moves lib/log and
+    // lib/players into lib/save/<turn>. It prints nothing when both exist.
 
     times_masthead(&game);
     if writeln!(out, "\tmalloc, realloc = 0, 0").is_err() {
@@ -196,13 +208,14 @@ fn parse_args(args: Vec<OsString>) -> Action {
             b'l' => opts.libdir = value,
             b'p' => opts.pretty = !opts.pretty,
             b'S' => opts.save = true,
+            b'r' => opts.run = true,
             b'R' => return Action::TestRandom,
             b't' => return Action::TestIlist,
             b'G' => {
                 let v = value.unwrap_or_default();
                 opts.trade_route_seed = Some(strtoull(v.as_encoded_bytes()));
             }
-            b'w' | b'a' | b'A' | b'f' | b'e' | b'E' | b'i' | b'r' | b's' | b'T' | b'M' | b'h' => {
+            b'w' | b'a' | b'A' | b'f' | b'e' | b'E' | b'i' | b's' | b'T' | b'M' | b'h' => {
                 opts.unported.push(format!("-{}", char::from(c)))
             }
             _ => opts.errflag = true,

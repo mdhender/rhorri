@@ -46,6 +46,12 @@ pub struct Game {
     pub system: System,
     pub seed: LegacyRng,
     pub trade_routes: TradeRoutes,
+    /// The `wait` command's index in the command table (`cmd_wait`).
+    pub cmd_wait: i32,
+    /// How many day dots `print_dot()` has printed (`dot_count`).
+    pub dot_count: i32,
+    /// Set once the turn's days have run (`month_done`).
+    pub month_done: bool,
 }
 
 impl Game {
@@ -61,6 +67,9 @@ impl Game {
             system: System::default(),
             seed: LegacyRng::new([0; 4]),
             trade_routes: TradeRoutes::default(),
+            cmd_wait: 0,
+            dot_count: 0,
+            month_done: false,
         }
     }
 

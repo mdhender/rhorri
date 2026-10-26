@@ -9,11 +9,8 @@ use std::process;
 
 use chrono::{Datelike, Local};
 
-use crate::entity::{Kind, Subkind};
+use crate::entity::{Kind, NUM_MONTHS, Subkind};
 use crate::game::Game;
-
-/// `NUM_MONTHS`: game months in a year.
-const NUM_MONTHS: i32 = 8;
 
 /// The game months (`month_names[]`).
 const MONTH_NAMES: [&str; 8] = [
