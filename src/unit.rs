@@ -6,18 +6,24 @@
 //! `olympia/oly.h`).
 
 use crate::check::{all_stack, stack_leader, stack_parent};
-use crate::entity::{Char, CharMagic, Db, Misc, Subkind};
+use crate::entity::{
+    BUY, Char, CharMagic, Db, Item, ItemEnt, ItemMagic, Kind, Misc, SELL, Subkind,
+};
 use crate::game::player;
+use crate::game::{Game, NotYetImplemented};
+use crate::loc::is_loc_or_ship;
 use crate::loc::{LOC_PROVINCE, garrison_here, loc_depth, subloc, weather_here};
+use crate::lore::{queue_lore, test_known};
+use crate::swear::{LOY_NPC, LOY_SUMMON};
 
+/// `sub_ni`: a noble that stands for an item.
+pub const SUB_NI: Subkind = Subkind(54);
+/// `SKILL_know`: a skill the character knows.
+const SKILL_KNOW: i8 = 2;
 /// `item_ghost_warrior`.
 const ITEM_GHOST_WARRIOR: i32 = 18;
 /// `item_gold`.
 pub const ITEM_GOLD: i32 = 1;
-/// `LOY_npc`.
-const LOY_NPC: i8 = 4;
-/// `LOY_summon`.
-const LOY_SUMMON: i8 = 5;
 
 /// `rp_char(n)`.
 fn rp_char(db: &Db, n: i32) -> Option<&Char> {
@@ -65,8 +71,15 @@ pub fn npc_program(db: &Db, n: i32) -> i32 {
 }
 
 /// `loyal_kind()`.
-fn loyal_kind(db: &Db, n: i32) -> i8 {
-    rp_char(db, n).map_or(0, |c| c.loy_kind)
+#[must_use]
+pub fn loyal_kind(db: &Db, n: i32) -> i32 {
+    rp_char(db, n).map_or(0, |c| i32::from(c.loy_kind))
+}
+
+/// `noble_item()`: the item a noble stands for, or 0.
+#[must_use]
+pub fn noble_item(db: &Db, n: i32) -> i32 {
+    rp_char(db, n).map_or(0, |c| c.unit_item)
 }
 
 /// `is_npc()`: has a subkind, or is loyal as an NPC or a summoned unit.
@@ -117,7 +130,8 @@ pub fn has_item(db: &Db, who: i32, item: i32) -> i32 {
 }
 
 /// `man_item()`.
-fn man_item(db: &Db, n: i32) -> bool {
+#[must_use]
+pub fn man_item(db: &Db, n: i32) -> bool {
     db.get(n)
         .and_then(|b| b.item.as_ref())
         .is_some_and(|i| i.is_man_item != 0)
@@ -153,7 +167,8 @@ pub fn count_stack_any(db: &Db, who: i32) -> i32 {
 }
 
 /// `char_alone()`: unstacked, and with no one else in its unit.
-fn char_alone(db: &Db, n: i32) -> bool {
+#[must_use]
+pub fn char_alone(db: &Db, n: i32) -> bool {
     stack_parent(db, n) == 0 && count_stack_any(db, n) == 1
 }
 
@@ -199,6 +214,229 @@ pub fn char_where(db: &Db, where_: i32, who: i32, target: i32) -> bool {
 #[must_use]
 pub fn char_here(db: &Db, who: i32, target: i32) -> bool {
     char_where(db, subloc(db, who), who, target)
+}
+
+/// `rp_item(n)`.
+fn rp_item(db: &Db, n: i32) -> Option<&Item> {
+    db.get(n).and_then(|b| b.item.as_deref())
+}
+
+/// `rp_item_magic(n)`.
+fn rp_item_magic(db: &Db, n: i32) -> Option<&ItemMagic> {
+    rp_item(db, n).and_then(|i| i.magic.as_deref())
+}
+
+/// `item_lore()`: the lore sheet that comes with an item, or 0.
+#[must_use]
+pub fn item_lore(db: &Db, n: i32) -> i32 {
+    rp_item_magic(db, n).map_or(0, |m| m.lore)
+}
+
+/// `item_unique()`: who holds a unique item, or 0 for an ordinary one.
+#[must_use]
+pub fn item_unique(db: &Db, n: i32) -> i32 {
+    rp_item(db, n).map_or(0, |i| i.who_has)
+}
+
+/// `item_attack()`.
+#[must_use]
+pub fn item_attack(db: &Db, n: i32) -> i32 {
+    rp_item(db, n).map_or(0, |i| i32::from(i.attack))
+}
+
+/// `item_defense()`.
+#[must_use]
+pub fn item_defense(db: &Db, n: i32) -> i32 {
+    rp_item(db, n).map_or(0, |i| i32::from(i.defense))
+}
+
+/// `item_token_num()`: how many units an NPC token controls at most.
+#[must_use]
+pub fn item_token_num(db: &Db, n: i32) -> i32 {
+    rp_item_magic(db, n).map_or(0, |m| i32::from(m.token_num))
+}
+
+/// `item_token_ni()`: the item an NPC token's units stand for.
+#[must_use]
+pub fn item_token_ni(db: &Db, n: i32) -> i32 {
+    rp_item_magic(db, n).map_or(0, |m| m.token_ni)
+}
+
+/// `npc_last_dir()`: the direction an NPC last moved in, or 0.
+#[must_use]
+pub fn npc_last_dir(db: &Db, n: i32) -> i32 {
+    rp_misc(db, n).map_or(0, |m| i32::from(m.npc_dir))
+}
+
+/// `olympia/use.c:exp_level`: the experience level for `exp` points.
+#[must_use]
+pub fn exp_level(exp: i32) -> i32 {
+    match exp {
+        ..=4 => 1,    // exp_novice
+        5..=11 => 2,  // exp_journeyman
+        12..=20 => 3, // exp_teacher
+        21..=34 => 4, // exp_master
+        _ => 5,       // exp_grand
+    }
+}
+
+/// `olympia/use.c:has_skill`: `who`'s experience level in a skill it
+/// knows, or 0.
+#[must_use]
+pub fn has_skill(db: &Db, who: i32, skill: i32) -> i32 {
+    rp_char(db, who)
+        .and_then(|c| c.skills.iter().find(|e| e.skill == skill))
+        .filter(|e| e.know == SKILL_KNOW)
+        .map_or(0, |e| exp_level(i32::from(e.experience)))
+}
+
+/// `has_use_key()`: the first item `who` holds with `use_key` `key`, or 0.
+#[must_use]
+pub fn has_use_key(db: &Db, who: i32, key: i32) -> i32 {
+    assert!(db.valid_box(who), "loop_inv: invalid box {who}");
+    db.entity(who)
+        .items
+        .iter()
+        .filter(|e| db.valid_box(e.item) && e.qty > 0)
+        .find(|e| rp_item_magic(db, e.item).is_some_and(|m| i32::from(m.use_key) == key))
+        .map_or(0, |e| e.item)
+}
+
+/// `stack_has_use_key()`: an item with `use_key` `key` held by someone in
+/// `who`'s stack of `who`'s faction, or 0.
+#[must_use]
+pub fn stack_has_use_key(db: &Db, who: i32, key: i32) -> i32 {
+    let pl = player(db, who);
+    all_stack(db, stack_leader(db, who))
+        .into_iter()
+        .filter(|&i| player(db, i) == pl)
+        .map(|i| has_use_key(db, i, key))
+        .find(|&ret| ret != 0)
+        .unwrap_or(0)
+}
+
+/// `beast_capturable()`: a noble standing for a capturable beast.
+#[must_use]
+pub fn beast_capturable(db: &Db, who: i32) -> bool {
+    db.subkind(who) == SUB_NI && rp_item(db, noble_item(db, who)).is_some_and(|i| i.capturable != 0)
+}
+
+impl Game {
+    /// `olympia/u.c:new_char`: a new character of subkind `sk`, standing
+    /// for item `ni`, at `where_` (or the location holding it), sworn to
+    /// `pl` with loyalty `loy_kind` at `loy_lev`. Returns its number.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotYetImplemented`] if `where_` is a character, to stack
+    /// the new one under (`join_stack`), or if swearing it reaches
+    /// something not ported.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_char(
+        &mut self,
+        sk: Subkind,
+        ni: i32,
+        where_: i32,
+        health: i32,
+        pl: i32,
+        loy_kind: i32,
+        loy_lev: i32,
+        name: Option<&[u8]>,
+    ) -> Result<i32, NotYetImplemented> {
+        let new = self.new_ent(Kind::CHAR, sk);
+        if new < 0 {
+            return Ok(-1);
+        }
+
+        if let Some(name) = name.filter(|n| !n.is_empty()) {
+            self.db.set_name(new, name);
+        }
+        let p = self.db.p_char(new);
+        p.health = health as i8;
+        p.unit_item = ni;
+        p.break_point = 50;
+        p.attack = 60;
+        p.defense = 60;
+
+        let dest = if is_loc_or_ship(&self.db, where_) {
+            where_
+        } else {
+            subloc(&self.db, where_)
+        };
+        self.db.set_where(new, dest);
+
+        self.set_lord(new, pl, loy_kind, loy_lev)?;
+
+        if self.db.kind(where_) == Kind::CHAR {
+            return Err(NotYetImplemented("join_stack".to_owned()));
+        }
+
+        if beast_capturable(&self.db, new) || is_npc(&self.db, new) {
+            self.db.p_char(new).break_point = 0;
+        }
+        Ok(new)
+    }
+
+    /// `olympia/u.c:gen_item`: gives `who` `qty` more of an ordinary item.
+    ///
+    /// # Panics
+    ///
+    /// Panics for a unique item, as C asserts.
+    pub fn gen_item(&mut self, who: i32, item: i32, qty: i32) {
+        assert_eq!(item_unique(&self.db, item), 0, "gen_item: unique {item}");
+        self.add_item(who, item, qty);
+    }
+
+    /// `olympia/u.c:add_item`: adds `qty` of `item` to `who`'s inventory.
+    /// A character's faction learns the item's lore, and a trade the new
+    /// stock might fill is queued for matching.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `who` or `item` isn't a valid box, or `qty` is negative,
+    /// as C asserts.
+    fn add_item(&mut self, who: i32, item: i32, qty: i32) {
+        assert!(self.db.valid_box(who), "add_item: invalid box {who}");
+        assert!(self.db.valid_box(item), "add_item: invalid item {item}");
+        assert!(qty >= 0, "add_item: qty {qty}");
+
+        let lore = item_lore(&self.db, item);
+        if lore != 0 && self.db.kind(who) == Kind::CHAR && !test_known(&self.db, who, item) {
+            queue_lore(&mut self.db, who, item, false);
+        }
+
+        let items = &mut self.db.entity_mut(who).items;
+        let old = if let Some(e) = items.iter_mut().find(|e| e.item == item) {
+            let old = e.qty;
+            e.qty += qty;
+            old
+        } else {
+            items.push(ItemEnt { item, qty });
+            0
+        };
+        self.investigate_possible_trade(who, item, old);
+    }
+
+    /// `olympia/buy.c:investigate_possible_trade`: queues `who` for trade
+    /// matching if, now that it holds more of `item` than its `old_has`,
+    /// a buy (for gold) or a sell of the item might go through.
+    fn investigate_possible_trade(&mut self, who: i32, item: i32, old_has: i32) {
+        let trades = &self.db.entity(who).trades;
+        let check = if item == ITEM_GOLD {
+            trades
+                .iter()
+                .filter(|t| t.kind == BUY)
+                .any(|t| (old_has - t.have_left) / t.cost < t.qty)
+        } else {
+            trades
+                .iter()
+                .filter(|t| t.kind == SELL && t.item == item)
+                .any(|t| old_has - t.have_left < t.qty)
+        };
+        if check {
+            self.driver.trades_to_check.push(who);
+        }
+    }
 }
 
 /// `olympia/move.c:restore_stack_actions`: `who`'s stack stops moving.

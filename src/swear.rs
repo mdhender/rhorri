@@ -3,6 +3,7 @@
 
 //! Lords and loyalty (`olympia/swear.c`).
 
+use crate::entity::Db;
 use crate::game::{Game, lord, player};
 use crate::turn::{Phase, not_ported};
 
@@ -10,6 +11,17 @@ use crate::turn::{Phase, not_ported};
 pub const LOY_UNCHANGED: i32 = -1;
 /// `LOY_unsworn`.
 pub const LOY_UNSWORN: i32 = 0;
+/// `LOY_npc`.
+pub const LOY_NPC: i32 = 4;
+/// `LOY_summon`.
+pub const LOY_SUMMON: i32 = 5;
+
+/// `set_loyal()`: sets `who`'s loyalty to kind `k` at level `lev`.
+pub fn set_loyal(db: &mut Db, who: i32, k: i32, lev: i32) {
+    let c = db.p_char(who);
+    c.loy_kind = k as i8;
+    c.loy_rate = lev;
+}
 
 impl Game {
     /// `char_pledge()`: whom `who` is pledged to, or 0.
@@ -108,10 +120,7 @@ impl Game {
         }
 
         if k != LOY_UNCHANGED {
-            // set_loyal()
-            let c = self.db.p_char(who);
-            c.loy_kind = k as i8;
-            c.loy_rate = lev;
+            set_loyal(&mut self.db, who, k, lev);
         }
         Ok(())
     }

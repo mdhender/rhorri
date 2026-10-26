@@ -8,10 +8,13 @@ use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::dir::ExitDir;
 use crate::entity::{Db, Kind, MAX_BOXES};
+use crate::hades::HadesRng;
 use crate::input::Driver;
 use crate::io;
 use crate::mint::Mint;
+use crate::npc::NpcRng;
 use crate::order;
 use crate::os::lib_path;
 use crate::rnd::{LegacyRng, SaveSeedError};
@@ -63,6 +66,15 @@ pub struct Game {
     /// The `wthr` stream and the weather-day schedule; see
     /// [`crate::storm`].
     pub weather: Weather,
+    /// The `exdr` stream; see [`crate::dir`].
+    pub exitdir: ExitDir,
+    /// The `npcs` stream as last seeded; see [`crate::npc`].
+    pub npc_rng: NpcRng,
+    /// The `hads` turn stream; see [`crate::hades`].
+    pub hades: HadesRng,
+    /// The savage units in the world, as `init_savage_attacks` last counted
+    /// them (`olympia/savage.c:num_savages`).
+    pub num_savages: i32,
 }
 
 impl Game {
@@ -84,6 +96,10 @@ impl Game {
             mint: Mint::default(),
             driver: Driver::default(),
             weather: Weather::default(),
+            exitdir: ExitDir::default(),
+            npc_rng: NpcRng::default(),
+            hades: HadesRng::default(),
+            num_savages: 0,
         }
     }
 

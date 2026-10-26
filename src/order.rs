@@ -35,6 +35,12 @@ pub fn queue_order(db: &mut Db, pl: i32, who: i32, s: &[u8]) {
     }
 }
 
+/// `queue()`: queues `s` for unit `who` in its faction's orders.
+pub fn queue(db: &mut Db, who: i32, s: &[u8]) {
+    let pl = crate::game::player(db, who);
+    queue_order(db, pl, who, s);
+}
+
 /// `rp_order_head()`: unit `who`'s queue in player `pl`'s orders.
 fn rp_order_head(db: &Db, pl: i32, who: i32) -> Option<&OrderList> {
     db.get(pl)?

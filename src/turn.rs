@@ -21,7 +21,7 @@ use crate::command::find_command;
 use crate::entity::{Kind, MONTH_DAYS};
 use crate::game::{Game, NotYetImplemented, player, stage};
 use crate::loc::{LOC_PROVINCE, loc_depth, subloc, viewloc};
-use crate::lore::scan_char_skill_lore;
+use crate::lore::{scan_char_item_lore, scan_char_skill_lore};
 use crate::os::strerror;
 
 /// The result of a phase: done, or stopped at a routine not ported yet.
@@ -66,12 +66,12 @@ impl Game {
         self.init_collect_list();
         self.initial_command_load();
         self.queue_npc_orders()?;
-        not_ported("ping_garrisons")?; // task 6 (garr.c)
-        not_ported("check_token_units")?; // task 6 (npc.c), "temp fix" in C
+        self.ping_garrisons();
+        self.check_token_units()?; // "XXX/NOTYET -- temp fix" in C
 
         self.process_interrupted_units()?; // day 0
         self.process_player_orders()?;
-        not_ported("scan_char_item_lore")?; // task 6 (lore.c)
+        scan_char_item_lore(&mut self.db);
 
         stage("");
 
@@ -146,14 +146,6 @@ impl Game {
         }
     }
 
-    /// `olympia/npc.c:queue_npc_orders`: queues the NPCs' orders for the
-    /// turn. Task 6: `init_savage_attacks`, `auto_hades`, then the
-    /// independent-unit programs.
-    fn queue_npc_orders(&mut self) -> Phase {
-        stage("queue_npc_orders()");
-        not_ported("queue_npc_orders")
-    }
-
     /// `olympia/u.c:print_dot`: the day dots on standard error, wrapped
     /// every 60.
     pub fn print_dot(&mut self, c: u8) {
@@ -223,7 +215,7 @@ impl Game {
         }
         not_ported("link_decay")?; // task 10
         not_ported("quest_decay")?; // task 10
-        not_ported("check_token_units")?; // task 6 (npc.c)
+        self.check_token_units()?;
         self.determine_noble_ranks()?;
 
         self.system.post_has_been_run = 1;

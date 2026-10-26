@@ -4,13 +4,17 @@
 //! The Olympia G3 game engine, ported from the C reference implementation in
 //! [playbymail/olympia-g3](https://github.com/playbymail/olympia-g3).
 
+pub mod art;
 pub mod check;
 pub mod code;
 pub mod combat;
 pub mod command;
 pub mod cstr;
+pub mod dir;
 pub mod entity;
 pub mod game;
+pub mod garr;
+pub mod hades;
 pub mod input;
 pub mod io;
 pub mod lines;
@@ -18,9 +22,11 @@ pub mod loc;
 pub mod lore;
 pub mod md5;
 pub mod mint;
+pub mod npc;
 pub mod order;
 pub mod rnd;
 pub mod rng;
+pub mod savage;
 pub mod selftest;
 pub mod storm;
 pub mod swear;

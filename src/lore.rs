@@ -6,6 +6,7 @@
 
 use crate::entity::{Db, Kind};
 use crate::game::player;
+use crate::unit::item_lore;
 
 /// `test_known()`: whether `who`'s faction knows of box `i`.
 ///
@@ -73,6 +74,26 @@ pub fn scan_char_skill_lore(db: &mut Db) {
             .unwrap_or_default();
         for skill in skills {
             queue_lore(db, who, skill, false);
+        }
+    }
+}
+
+/// `scan_char_item_lore()`: owes each faction the lore for every item with
+/// a lore sheet its characters hold.
+pub fn scan_char_item_lore(db: &mut Db) {
+    for who in db.boxes_of_kind(Kind::CHAR) {
+        // loop_inv walks a copy, skipping invalid items and empty entries.
+        let items: Vec<i32> = db
+            .entity(who)
+            .items
+            .iter()
+            .filter(|e| db.valid_box(e.item) && e.qty > 0)
+            .map(|e| e.item)
+            .collect();
+        for item in items {
+            if item_lore(db, item) != 0 && !test_known(db, who, item) {
+                queue_lore(db, who, item, false);
+            }
         }
     }
 }

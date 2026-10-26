@@ -77,7 +77,7 @@ pub struct Driver {
     /// (`olympia/combat.c:second_wait_list`).
     pub second_wait_list: Vec<i32>,
     /// Units whose trades want matching (`olympia/buy.c:trades_to_check`).
-    /// Only `buy` and `sell` add to it.
+    /// `buy`, `sell` and `add_item` add to it.
     pub trades_to_check: Vec<i32>,
     /// The signals raised by `flag` this turn (`olympia/c1.c:flags`).
     pub flags: Vec<FlagEnt>,
