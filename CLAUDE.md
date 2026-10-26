@@ -110,12 +110,9 @@ fixtures pass, not by lines ported.
 
 ## Build
 
-There is no crate yet. Once there is:
-
-- Stable Rust and Cargo.
-- `cargo fmt` (default rustfmt settings) and `cargo clippy` clean.
-- `cargo test` for unit tests. The olympia-g3 fixtures remain the spec, and
-  unit tests don't replace them.
+There is no crate yet. Once there is, use stable Rust and Cargo with default
+rustfmt settings. [WORKFLOW.md](WORKFLOW.md) lists the checks to run before
+committing.
 
 ## Conventions
 
@@ -126,14 +123,8 @@ There is no crate yet. Once there is:
 - No `unsafe` unless there is no reasonable alternative, with a comment saying
   why.
 
-### Git workflow
+### Workflow
 
-Changes land via **feature branch + pull request**:
-
-- **Branch** from `main` named `type/slug` (`feat/…`, `fix/…`, `docs/…`,
-  `refactor/…`, `build/…`), matching the Conventional-Commits type.
-- **Reference the issue** in the PR body: `Closes #NN` or `Refs #NN`. A bare
-  `#NN` is a rhorri issue. Write olympia-g3 issues and PRs as
-  `playbymail/olympia-g3#NN`.
-- **Squash-merge** to keep `main` linear. The squashed commit keeps the
-  `type(scope): subject (#NN)` subject.
+Read and follow [WORKFLOW.md](WORKFLOW.md) before working. It owns the
+project's bug-priority, build/test, versioning, Git, and CI policies. Don't
+repeat or override those policies here.
