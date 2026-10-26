@@ -15,6 +15,7 @@ use crate::mint::Mint;
 use crate::order;
 use crate::os::lib_path;
 use crate::rnd::{LegacyRng, SaveSeedError};
+use crate::storm::Weather;
 use crate::system::System;
 use crate::trade_route::TradeRoutes;
 
@@ -59,6 +60,9 @@ pub struct Game {
     pub mint: Mint,
     /// The command driver's queues and lists; see [`crate::input`].
     pub driver: Driver,
+    /// The `wthr` stream and the weather-day schedule; see
+    /// [`crate::storm`].
+    pub weather: Weather,
 }
 
 impl Game {
@@ -79,6 +83,7 @@ impl Game {
             month_done: false,
             mint: Mint::default(),
             driver: Driver::default(),
+            weather: Weather::default(),
         }
     }
 

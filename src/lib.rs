@@ -22,6 +22,7 @@ pub mod order;
 pub mod rnd;
 pub mod rng;
 pub mod selftest;
+pub mod storm;
 pub mod swear;
 pub mod system;
 pub mod times;

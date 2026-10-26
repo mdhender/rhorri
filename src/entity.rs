@@ -47,6 +47,18 @@ impl IList {
         }
     }
 
+    /// Removes the element at index `i` (`ilist_delete()`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i` is out of range, as C asserts.
+    pub fn delete(&mut self, i: i32) {
+        let len = self.len();
+        let ix = usize::try_from(i).ok().filter(|&ix| ix < len);
+        let ix = ix.unwrap_or_else(|| panic!("ilist_delete: index {i} out of range 0..{len}"));
+        self.0.as_mut().expect("non-empty").remove(ix);
+    }
+
     /// Whether `n` is in the list (`ilist_lookup() != -1`).
     #[must_use]
     pub fn contains(&self, n: i32) -> bool {
@@ -375,6 +387,9 @@ pub struct Player {
     pub locs: IList,
     /// The lore sheets owed this turn (`deliver_lore`). Not saved.
     pub deliver_lore: IList,
+    /// The provinces the faction's weather mages saw this turn
+    /// (`weather_seen`). Not saved.
+    pub weather_seen: IList,
     /// The commands the faction's units started this turn (`cmd_count`).
     /// Not saved.
     pub cmd_count: i16,
@@ -1142,6 +1157,11 @@ impl Db {
     /// `p_player(n)`: the player struct, allocated on demand.
     pub fn p_player(&mut self, n: i32) -> &mut Player {
         self.entity_mut(n).player.get_or_insert_with(Box::default)
+    }
+
+    /// `p_misc(n)`: the misc struct, allocated on demand.
+    pub fn p_misc(&mut self, n: i32) -> &mut Misc {
+        self.entity_mut(n).misc.get_or_insert_with(Box::default)
     }
 
     /// `p_disp(n)`: the attitude struct, allocated on demand.

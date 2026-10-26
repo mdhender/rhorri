@@ -59,7 +59,7 @@ impl Game {
         assert!(self.cmd_wait > 0, "process_orders: no wait command");
 
         self.init_locs_touched();
-        not_ported("init_weather_views")?; // task 8 (storm.c)
+        self.init_weather_views();
         self.system.sysclock.turn_change();
 
         self.init_wait_list();
@@ -119,7 +119,7 @@ impl Game {
 
     /// `olympia/day.c:touch_loc_pl`: records that faction `pl` saw
     /// `where_`, and what holds it if that is below a province.
-    fn touch_loc_pl(&mut self, pl: i32, where_: i32) {
+    pub(crate) fn touch_loc_pl(&mut self, pl: i32, where_: i32) {
         let where_ = viewloc(&self.db, where_);
         let inside = (loc_depth(&self.db, where_) > LOC_PROVINCE).then(|| self.db.loc(where_));
         let locs = &mut self.db.p_player(pl).locs;
@@ -170,7 +170,10 @@ impl Game {
 
     /// `olympia/day.c:daily_events`: the day's scheduled events. Task 7
     /// lays it out (the `caln` day picks, the weather days and the daily
-    /// routines); `natural_weather` within it is task 8.
+    /// routines). The weather pieces are ported (task 8): call
+    /// [`schedule_weather_days`](Self::schedule_weather_days) right after
+    /// the `caln` day picks, and [`weather_day`](Self::weather_day) after
+    /// `dogs_bark_at_hidden_chars()` and before `auto_faery()`.
     fn daily_events(&mut self) -> Phase {
         not_ported("daily_events")
     }
@@ -211,8 +214,8 @@ impl Game {
         not_ported("ghost_warrior_decay")?; // task 10
         not_ported("corpse_decay")?; // task 10
         not_ported("dead_body_rot")?; // task 10
-        not_ported("storm_decay")?; // task 8 (storm.c)
-        not_ported("storm_move")?; // task 8 (day.c)
+        self.storm_decay()?;
+        self.storm_move();
         not_ported("collapsed_mine_decay")?; // task 10
         self.post_production()?;
         if self.system.auto_quit_turns > 0 {

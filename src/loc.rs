@@ -4,6 +4,7 @@
 //! Location depth and containment (`olympia/loc.c`, `olympia/u.c:loc_depth`).
 
 use crate::entity::{Db, Kind, Subkind};
+use crate::system::System;
 
 /// `LOC_region`: a top-level continent or island group.
 pub const LOC_REGION: i32 = 1;
@@ -110,6 +111,32 @@ pub fn viewloc(db: &Db, mut who: i32) -> i32 {
     who
 }
 
+/// `region()`: the region that holds `who`, or `who` if it is one.
+#[must_use]
+pub fn region(db: &Db, mut who: i32) -> i32 {
+    while who > 0 && (db.kind(who) != Kind::LOC || loc_depth(db, who) != LOC_REGION) {
+        who = db.loc(who);
+    }
+    who
+}
+
+/// `olympia/u.c:greater_region`: the special region (Faery, Hades,
+/// Nowhere, the Cloudlands, the tunnels or the Subworld) that holds `who`,
+/// or 0 if it is in the ordinary world.
+#[must_use]
+pub fn greater_region(db: &Db, sys: &System, who: i32) -> i32 {
+    let reg = region(db, who);
+    let special = [
+        sys.faery_region,
+        sys.hades_region,
+        sys.nowhere_region,
+        sys.cloud_region,
+        sys.tunnel_region,
+        sys.under_region,
+    ];
+    if special.contains(&reg) { reg } else { 0 }
+}
+
 /// `province()`: the province that holds `who`, or `who` if it is one.
 #[must_use]
 pub fn province(db: &Db, mut who: i32) -> i32 {
@@ -174,6 +201,34 @@ pub fn in_safe_now(db: &Db, mut who: i32) -> bool {
 pub fn here_list(db: &Db, where_: i32) -> Vec<i32> {
     assert!(db.valid_box(where_), "loop_here: invalid box {where_}");
     db.entity(where_).loc_info.here_list.as_slice().to_vec()
+}
+
+/// `loop_char_here` (`olympia/loc.c:all_char_here`): every character in
+/// `who`, depth first: each character directly in it, followed by the
+/// characters stacked under that one.
+///
+/// # Panics
+///
+/// Panics if `who` isn't a valid box, as C asserts.
+#[must_use]
+pub fn all_char_here(db: &Db, who: i32) -> Vec<i32> {
+    fn add_char_here(db: &Db, who: i32, l: &mut Vec<i32>) {
+        l.push(who);
+        for &i in db.entity(who).loc_info.here_list.as_slice() {
+            if db.kind(i) == Kind::CHAR {
+                add_char_here(db, i, l);
+            }
+        }
+    }
+
+    assert!(db.valid_box(who), "all_char_here: invalid box {who}");
+    let mut l = Vec::new();
+    for &i in db.entity(who).loc_info.here_list.as_slice() {
+        if db.kind(i) == Kind::CHAR {
+            add_char_here(db, i, &mut l);
+        }
+    }
+    l
 }
 
 /// `first_character()`: the first character directly in `where_`, or 0.
