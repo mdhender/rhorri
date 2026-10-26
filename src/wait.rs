@@ -196,10 +196,9 @@ impl Game {
         let day = i32::from(self.system.sysclock.day);
         let turn = i32::from(self.system.sysclock.turn);
 
-        // C's `cond = not - cond`: true when the condition holds and isn't
-        // inverted, or doesn't hold and is. A count (the weather's
-        // strength) above 1 reads as holding even when inverted
-        // (playbymail/olympia-g3#247).
+        // C's `cond = not - cond` (olympia/c1.c:check_wait_conditions): true
+        // when the condition holds and isn't inverted, or doesn't hold and
+        // is. Every condition is 0 or 1, the weather ones included.
         let mut not = 0;
         let mut setnot = false;
         for p in &c.wait_parse {
@@ -368,7 +367,7 @@ impl Game {
                         12 => (Subkind::FOG, "foggy"),
                         _ => (Subkind::WIND, "windy"),
                     };
-                    if held(weather_here(db, province(db, who), sk)) {
+                    if held(i32::from(weather_here(db, province(db, who), sk) > 0)) {
                         return Some(msg(format!("it is{} {word}.", not_s(not))));
                     }
                 }
@@ -576,9 +575,9 @@ mod tests {
     }
 
     #[test]
-    fn inverted_weather_of_strength_two_still_reads_as_holding() {
-        // `cond = not - cond` with a storm strength of 2 is -1: C reports
-        // "it is not raining" while it rains.
+    fn inverted_weather_of_strength_two_reads_as_not_holding() {
+        // The weather's summed strength is compared with zero, so `wait not
+        // rain` waits under a storm of any strength (olympia-g3#247).
         let mut g = game();
         g.db.alloc_box(80001, Kind::STORM, Subkind::RAIN);
         g.db.set_where(80001, PROV);
@@ -588,12 +587,14 @@ mod tests {
             check(&mut g, b"wait rain").as_deref(),
             Some("it is raining.")
         );
+        assert_eq!(check(&mut g, b"wait not rain"), None);
+        g.db.entity_mut(80001).misc.as_mut().unwrap().storm_str = 1;
+        assert_eq!(check(&mut g, b"wait not rain"), None);
+        g.db.entity_mut(80001).misc.as_mut().unwrap().storm_str = 0;
         assert_eq!(
             check(&mut g, b"wait not rain").as_deref(),
             Some("it is not raining.")
         );
-        g.db.entity_mut(80001).misc.as_mut().unwrap().storm_str = 1;
-        assert_eq!(check(&mut g, b"wait not rain"), None);
     }
 
     #[test]
