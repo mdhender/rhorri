@@ -119,6 +119,11 @@ there.
   saved game, before and after a C turn. It diffs every `lib/` file and both
   engines' stdout and stderr. Run it after changing the load or save code;
   the fixtures can't catch those changes until `-r` is ported.
+- `harness/turn.sh` compares rhorri with the C engine on one turn
+  (`-r -l ./lib -S`, no orders) on the fixture world. It diffs the exit
+  status, stdout, stderr and every `lib/` file except the stage 2 report and
+  player output. It is stage 1's exit check and fails until that stage is
+  done; work is kept in `tmp/turn/` for inspection.
 
 Fixtures for the parts not yet ported will fail. Track progress by which
 fixtures pass, not by lines ported.
