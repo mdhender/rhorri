@@ -337,14 +337,9 @@ impl Game {
     }
 
     /// `olympia/storm.c:move_bound_storms`: the storms bound to `ship`
-    /// follow it to the province of `where_`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a bound storm is no longer a storm. C means to drop it from
-    /// the list, but passes the storm's number to `ilist_delete()` as the
-    /// index, which asserts unless the number happens to be a valid index.
-    /// That is copied: a storm in range is removed by that index.
+    /// follow it to the province of `where_`. An entry that is no longer a
+    /// storm is dropped from the list; the entry that shifts into its index
+    /// is still visited.
     pub fn move_bound_storms(&mut self, ship: i32, where_: i32) {
         if self.db.get(ship).and_then(|b| b.subloc.as_ref()).is_none() {
             return;
@@ -365,9 +360,7 @@ impl Game {
             };
             if self.db.kind(storm) != Kind::STORM {
                 let s = self.db.entity_mut(ship).subloc.as_mut().expect("checked");
-                // C passes the storm, not its index, so this panics for any
-                // real storm (playbymail/olympia-g3#250).
-                s.bound_storms.delete(storm);
+                s.bound_storms.delete(i);
                 i -= 1;
             } else {
                 let dest = province(&self.db, where_);
@@ -728,6 +721,74 @@ mod tests {
                 .unwrap()
                 .bound_storms
                 .is_empty()
+        );
+    }
+
+    /// Ship 60000 in province 20000, with storms of the given ids
+    /// bound to it in that order. Each id is raised there as a wind.
+    fn ship_with_bound_storms(storms: &[i32]) -> Game {
+        let mut g = world(3);
+        g.db.alloc_box(60000, Kind::SHIP, Subkind::ROUNDSHIP);
+        g.db.set_where(60000, 20000);
+        for &s in storms {
+            g.db.alloc_box(s, Kind::STORM, Subkind::WIND);
+            g.new_storm(s, Subkind::WIND, 6, 20000);
+            g.db.p_misc(s).bind_storm = 60000;
+            g.db.entity_mut(60000)
+                .subloc
+                .get_or_insert_with(Default::default)
+                .bound_storms
+                .append(s);
+        }
+        g
+    }
+
+    fn bound_storms(g: &Game, ship: i32) -> Vec<i32> {
+        g.db.entity(ship)
+            .subloc
+            .as_ref()
+            .unwrap()
+            .bound_storms
+            .as_slice()
+            .to_vec()
+    }
+
+    /// The sail-stale-storm fixture (playbymail/olympia-g3#250): the
+    /// ship's list holds a rain that was dissipated without leaving it (its
+    /// bind field named itself, the pre-#169 shape), then a live wind. The
+    /// ship arrives in 20001: the rain is dropped at index 0 and the wind,
+    /// which shifts into index 0, still moves with the ship.
+    #[test]
+    fn a_dead_bound_storm_is_dropped_and_the_next_still_moves() {
+        let mut g = ship_with_bound_storms(&[99374, 88781]);
+        g.db.p_misc(99374).bind_storm = 99374;
+        g.dissipate_storm(99374, true).unwrap();
+        assert_eq!(g.db.kind(99374), Kind::DELETED);
+        assert_eq!(bound_storms(&g, 60000), [99374, 88781]);
+
+        g.db.set_where(60000, 20001);
+        g.move_bound_storms(60000, 20001);
+        assert_eq!(bound_storms(&g, 60000), [88781]);
+        assert_eq!(g.db.loc(88781), 20001);
+        assert_eq!(storm_bind(&g.db, 88781), 60000);
+    }
+
+    /// Runs of dead entries, at the front, between and at the end of the
+    /// list, are all dropped, and every live storm moves, in list order.
+    #[test]
+    fn every_dead_bound_storm_is_dropped() {
+        let all = [91001, 91002, 91003, 91004, 91005, 91006];
+        let mut g = ship_with_bound_storms(&all);
+        for dead in [91001, 91002, 91004, 91006] {
+            g.db.delete_box(dead);
+        }
+        g.move_bound_storms(60000, 20002);
+        assert_eq!(bound_storms(&g, 60000), [91003, 91005]);
+        assert_eq!(g.db.loc(91003), 20002);
+        assert_eq!(g.db.loc(91005), 20002);
+        assert_eq!(
+            g.db.entity(20002).loc_info.here_list.as_slice(),
+            [91003, 91005]
         );
     }
 
