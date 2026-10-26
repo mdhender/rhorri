@@ -131,6 +131,12 @@ fn run_engine(out: &mut impl Write, opts: Options) -> ExitCode {
     game.test_use_const_report_date = opts.test_use_const_report_date;
     game.trade_route_seed = opts.trade_route_seed;
 
+    // load_db() can print to stdout directly (a missing randseed), so the
+    // preamble has to be out first.
+    if let Err(err) = out.flush() {
+        eprintln!("olympia-g3: {err}");
+        return ExitCode::FAILURE;
+    }
     if let Err(err) = game.load_db() {
         let _ = out.flush();
         eprintln!("olympia-g3: {err}");
