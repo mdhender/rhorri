@@ -1,0 +1,20 @@
+[package]
+name = "rhorri"
+version = "0.1.0-beta"
+edition = "2024"
+rust-version = "1.85"
+description = "Rust + Rhai port of the Olympia G3 play-by-mail game engine"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/mdhender/rhorri"
+publish = false
+
+# The olympia-g3 harness invokes the engine by this name.
+[[bin]]
+name = "olympia-g3"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"

@@ -110,9 +110,11 @@ fixtures pass, not by lines ported.
 
 ## Build
 
-There is no crate yet. Once there is, use stable Rust and Cargo with default
-rustfmt settings. [WORKFLOW.md](WORKFLOW.md) lists the checks to run before
-committing.
+One Cargo package, `rhorri`, on stable Rust with default rustfmt settings. The
+engine is the library in `src/lib.rs`. The binary is named `olympia-g3`, the
+name the olympia-g3 harness invokes, so `cargo build` produces
+`target/debug/olympia-g3`. Lints are configured in `Cargo.toml`.
+[WORKFLOW.md](WORKFLOW.md) lists the checks to run before committing.
 
 ## Conventions
 
