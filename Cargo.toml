@@ -1,6 +1,6 @@
 [package]
 name = "rhorri"
-version = "0.14.5-beta"
+version = "0.14.6-beta"
 edition = "2024"
 rust-version = "1.85"
 description = "Rust + Rhai port of the Olympia G3 play-by-mail game engine"

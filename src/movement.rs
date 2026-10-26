@@ -324,10 +324,9 @@ impl Game {
     }
 
     /// `olympia/move.c:can_move_here`: whether `who` could walk from
-    /// `where_` by the direction `word`.
-    fn can_move_here(&self, who: i32, where_: i32, word: &[u8]) -> bool {
-        // c->a is 0: every argument has been shifted off.
-        self.parse_exit_dir(who, where_, 0, word, None)
+    /// `where_` to the destination `a` or by the direction `word`.
+    fn can_move_here(&self, who: i32, where_: i32, a: i32, word: &[u8]) -> bool {
+        self.parse_exit_dir(who, where_, a, word, None)
             .is_some_and(|v| {
                 v.direction != DIR_IN
                     && self.land_check(who, &v)
@@ -336,12 +335,12 @@ impl Game {
     }
 
     /// `olympia/move.c:can_move_at_outer_level`: how many levels out from
-    /// `where_` `who` would have to go to walk by the direction `word`, or
-    /// 0 if it can't from any of them.
-    fn can_move_at_outer_level(&self, who: i32, where_: i32, word: &[u8]) -> i32 {
+    /// `where_` `who` would have to go to walk to the destination `a` or by
+    /// the direction `word`, or 0 if it can't from any of them.
+    fn can_move_at_outer_level(&self, who: i32, where_: i32, a: i32, word: &[u8]) -> i32 {
         let mut outer = subloc(&self.db, where_);
         while loc_depth(&self.db, outer) > LOC_REGION {
-            if self.can_move_here(who, outer, word) {
+            if self.can_move_here(who, outer, a, word) {
                 return loc_depth(&self.db, outer) - loc_depth(&self.db, where_);
             }
             outer = subloc(&self.db, outer);
@@ -385,10 +384,6 @@ impl Game {
             // TODO(stage 2): wout(who, "Specify direction or destination to MOVE.")
             return Ok(0);
         }
-        // After every argument has been shifted off, C's c->parse[1] still
-        // points at the last of them (cstrings_delete leaves the slot;
-        // playbymail/olympia-g3#253).
-        let last_word = c.parse.last().cloned().unwrap_or_default();
 
         let mut v = None;
         while numargs(self.command(who)) > 0 {
@@ -402,10 +397,18 @@ impl Game {
                 }
                 v = None;
             }
+            // Keep the last argument: can_move_at_outer_level tests it.
+            if numargs(self.command(who)) == 1 {
+                break;
+            }
             self.with_command(who, cmd_shift);
         }
 
-        if v.is_none() && check_outer && self.can_move_at_outer_level(who, where_, &last_word) != 0
+        let c = self.command(who);
+        let (last_a, last_word) = (c.args[0], c.parse[1].clone());
+        if v.is_none()
+            && check_outer
+            && self.can_move_at_outer_level(who, where_, last_a, &last_word) != 0
         {
             let a = subloc(&self.db, where_);
             self.command(who).args[0] = a;
