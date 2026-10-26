@@ -6,10 +6,12 @@
 
 pub mod check;
 pub mod code;
+pub mod combat;
 pub mod command;
 pub mod cstr;
 pub mod entity;
 pub mod game;
+pub mod input;
 pub mod io;
 pub mod lines;
 pub mod loc;
@@ -25,5 +27,7 @@ pub mod system;
 pub mod times;
 pub mod trade_route;
 pub mod turn;
+pub mod unit;
+pub mod wait;
 
 mod os;

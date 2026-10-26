@@ -88,9 +88,9 @@ impl Game {
     ///
     /// # Errors
     ///
-    /// Returns [`NotYetImplemented`](crate::game::NotYetImplemented) if a
-    /// unit sworn to no faction must be sworn to the independent player:
-    /// [`set_lord`](Game::set_lord) needs the command driver for that.
+    /// Returns [`NotYetImplemented`](crate::game::NotYetImplemented) if
+    /// swearing a unit with no faction to the independent player reaches a
+    /// part of [`set_lord`](Game::set_lord) not ported yet.
     pub fn check_db(&mut self) -> Phase {
         stage("check_db()");
 

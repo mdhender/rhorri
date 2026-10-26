@@ -40,6 +40,13 @@ impl IList {
         }
     }
 
+    /// Empties the list, keeping it allocated if it is (`ilist_clear()`).
+    pub fn clear(&mut self) {
+        if let Some(v) = &mut self.0 {
+            v.clear();
+        }
+    }
+
     /// Whether `n` is in the list (`ilist_lookup() != -1`).
     #[must_use]
     pub fn contains(&self, n: i32) -> bool {
@@ -165,8 +172,14 @@ impl Subkind {
     pub const PL_REGULAR: Self = Self(49);
     pub const REGION: Self = Self(50);
     pub const MINE_COLLAPSED: Self = Self(53);
+    pub const FOG: Self = Self(57);
+    pub const WIND: Self = Self(58);
+    pub const RAIN: Self = Self(59);
     pub const HADES_PIT: Self = Self(60);
+    pub const GARRISON: Self = Self(64);
     pub const CLOUD: Self = Self(65);
+    pub const RAFT: Self = Self(66);
+    pub const RAFT_NOTDONE: Self = Self(67);
     pub const TUNNEL: Self = Self(70);
     pub const SEWER: Self = Self(71);
     pub const CHAMBER: Self = Self(72);
@@ -362,6 +375,9 @@ pub struct Player {
     pub locs: IList,
     /// The lore sheets owed this turn (`deliver_lore`). Not saved.
     pub deliver_lore: IList,
+    /// The commands the faction's units started this turn (`cmd_count`).
+    /// Not saved.
+    pub cmd_count: i16,
 }
 
 /// Attitudes (`struct att_ent`).
@@ -626,6 +642,23 @@ pub struct Command {
     pub inhibit_finish: i8,
     /// Not saved.
     pub fuzzy: bool,
+    /// Held back a day by an auto-attack (`second_wait`). Not saved.
+    pub second_wait: bool,
+    /// The `wait` command's parsed conditions (`wait_parse`). Not saved.
+    pub wait_parse: Vec<WaitArg>,
+    /// The day `finish_command()` last ran (`debug`). Not saved.
+    pub debug: i8,
+}
+
+/// One parsed condition of a `wait` command (`struct wait_arg`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WaitArg {
+    /// The condition's index in `wait_tags`, aliases folded.
+    pub tag: i32,
+    pub a1: i32,
+    pub a2: i32,
+    /// The flag a `flag` condition waits for.
+    pub flag: Option<Text>,
 }
 
 /// A pending trade (`struct trade`).

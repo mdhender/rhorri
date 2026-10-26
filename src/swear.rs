@@ -3,7 +3,7 @@
 
 //! Lords and loyalty (`olympia/swear.c`).
 
-use crate::game::{Game, player};
+use crate::game::{Game, lord, player};
 use crate::turn::{Phase, not_ported};
 
 /// `LOY_UNCHANGED`: leave the unit's loyalty as it is.
@@ -12,6 +12,35 @@ pub const LOY_UNCHANGED: i32 = -1;
 pub const LOY_UNSWORN: i32 = 0;
 
 impl Game {
+    /// `char_pledge()`: whom `who` is pledged to, or 0.
+    fn char_pledge(&self, who: i32) -> i32 {
+        self.db
+            .get(who)
+            .and_then(|b| b.char_.as_ref())
+            .and_then(|c| c.magic.as_ref())
+            .map_or(0, |m| m.pledge)
+    }
+
+    /// `reswear_all_sworn()`: the units sworn to `who` swear to `who`'s
+    /// lord instead.
+    fn reswear_all_sworn(&mut self, who: i32) -> Phase {
+        let pl = player(&self.db, who);
+        let new_lord = lord(&self.db, who);
+        // loop_units
+        let units = self
+            .db
+            .get(pl)
+            .and_then(|b| b.player.as_ref())
+            .map(|p| p.units.as_slice().to_vec())
+            .unwrap_or_default();
+        for i in units {
+            if lord(&self.db, i) == who {
+                self.set_lord(i, new_lord, LOY_UNCHANGED, 0)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Swears `who` to `new_lord`, moving it between factions if their
     /// players differ, and sets its loyalty to `k` at level `lev` unless `k`
     /// is [`LOY_UNCHANGED`] (`olympia/swear.c:set_lord`).
@@ -19,9 +48,8 @@ impl Game {
     /// # Errors
     ///
     /// Returns [`NotYetImplemented`](crate::game::NotYetImplemented) when
-    /// the move reaches the command driver (`flush_unit_orders` for a unit
-    /// leaving a faction, `init_load_sup` for one joining a faction, task 4
-    /// of #5) or the noble-point transfer (`char_np_total`).
+    /// the move interrupts a command whose interrupt routine isn't ported,
+    /// or reaches the noble-point transfer (`char_np_total`).
     pub fn set_lord(&mut self, who: i32, new_lord: i32, k: i32, lev: i32) -> Phase {
         let old_pl = player(&self.db, who);
         let new_pl = if new_lord != 0 {
@@ -31,9 +59,23 @@ impl Game {
         };
 
         if old_pl != 0 && old_pl != new_pl {
-            // flush_unit_orders(), interrupt_order(), clear_all_att(),
-            // reswear_all_sworn(), the pledge, and leaving old_pl's units.
-            return not_ported("flush_unit_orders"); // task 4 (input.c)
+            self.flush_unit_orders(old_pl, who);
+            self.interrupt_order(who)?;
+            // clear_all_att()
+            if let Some(d) = self.db.get_mut(who).and_then(|b| b.disp.as_deref_mut()) {
+                d.neutral.clear();
+                d.hostile.clear();
+                d.defend.clear();
+            }
+            self.reswear_all_sworn(who)?;
+
+            if self.char_pledge(who) != 0 {
+                self.db.p_magic(who).pledge = 0;
+                // TODO(stage 2): pledge_backlinks = FALSE, report.c's cache
+                // of who is pledged to whom.
+            }
+
+            self.db.p_player(old_pl).units.rem_value(who);
         }
 
         let c = self.db.p_char(who);
@@ -50,8 +92,9 @@ impl Game {
             let units = &mut self.db.p_player(new_pl).units;
             units.append(who);
             units.sort();
-            // Then touch_loc(who).
-            return not_ported("init_load_sup"); // task 4 (input.c)
+
+            self.init_load_sup(who); // load the command from the new owner
+            self.touch_loc(who);
         }
 
         let mut old_pl = old_pl;

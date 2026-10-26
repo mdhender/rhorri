@@ -9,6 +9,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::entity::{Db, Kind, MAX_BOXES};
+use crate::input::Driver;
 use crate::io;
 use crate::mint::Mint;
 use crate::order;
@@ -56,6 +57,8 @@ pub struct Game {
     /// The `mint` stream entity numbers are drawn from; see
     /// [`new_ent`](Self::new_ent).
     pub mint: Mint,
+    /// The command driver's queues and lists; see [`crate::input`].
+    pub driver: Driver,
 }
 
 impl Game {
@@ -75,6 +78,7 @@ impl Game {
             dot_count: 0,
             month_done: false,
             mint: Mint::default(),
+            driver: Driver::default(),
         }
     }
 

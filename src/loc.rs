@@ -110,6 +110,133 @@ pub fn viewloc(db: &Db, mut who: i32) -> i32 {
     who
 }
 
+/// `province()`: the province that holds `who`, or `who` if it is one.
+#[must_use]
+pub fn province(db: &Db, mut who: i32) -> i32 {
+    while who > 0 && (db.kind(who) != Kind::LOC || loc_depth(db, who) != LOC_PROVINCE) {
+        who = db.loc(who);
+    }
+    who
+}
+
+/// `is_ship()`: a finished ship.
+#[must_use]
+pub fn is_ship(db: &Db, n: i32) -> bool {
+    matches!(
+        db.subkind(n),
+        Subkind::GALLEY | Subkind::ROUNDSHIP | Subkind::RAFT
+    )
+}
+
+/// `is_ship_notdone()`: a ship still being built.
+#[must_use]
+pub fn is_ship_notdone(db: &Db, n: i32) -> bool {
+    matches!(
+        db.subkind(n),
+        Subkind::GALLEY_NOTDONE | Subkind::ROUNDSHIP_NOTDONE | Subkind::RAFT_NOTDONE
+    )
+}
+
+/// `is_loc_or_ship()`.
+#[must_use]
+pub fn is_loc_or_ship(db: &Db, n: i32) -> bool {
+    matches!(db.kind(n), Kind::LOC | Kind::SHIP)
+}
+
+/// `safe_haven()`.
+fn safe_haven(db: &Db, n: i32) -> bool {
+    db.get(n)
+        .and_then(|b| b.subloc.as_ref())
+        .is_some_and(|s| s.safe != 0)
+}
+
+/// `in_safe_now()`: whether `who` is anywhere inside a safe haven, where
+/// no combat is permitted.
+#[must_use]
+pub fn in_safe_now(db: &Db, mut who: i32) -> bool {
+    loop {
+        if safe_haven(db, who) {
+            return true;
+        }
+        who = db.loc(who);
+        if who <= 0 {
+            return false;
+        }
+    }
+}
+
+/// `loop_here`: a copy of what is directly in `where_`.
+///
+/// # Panics
+///
+/// Panics if `where_` isn't a valid box, as C asserts.
+#[must_use]
+pub fn here_list(db: &Db, where_: i32) -> Vec<i32> {
+    assert!(db.valid_box(where_), "loop_here: invalid box {where_}");
+    db.entity(where_).loc_info.here_list.as_slice().to_vec()
+}
+
+/// `first_character()`: the first character directly in `where_`, or 0.
+#[must_use]
+pub fn first_character(db: &Db, where_: i32) -> i32 {
+    here_list(db, where_)
+        .into_iter()
+        .find(|&i| db.kind(i) == Kind::CHAR)
+        .unwrap_or(0)
+}
+
+/// `olympia/garr.c:garrison_here`: the garrison of `where_`, which is
+/// always its first character, or 0.
+#[must_use]
+pub fn garrison_here(db: &Db, where_: i32) -> i32 {
+    let n = first_character(db, where_);
+    if n != 0 && db.subkind(n) == Subkind::GARRISON {
+        n
+    } else {
+        0
+    }
+}
+
+/// `building_owner()`: the first character in a building.
+///
+/// # Panics
+///
+/// Panics if `where_` isn't a building, as C asserts.
+#[must_use]
+pub fn building_owner(db: &Db, where_: i32) -> i32 {
+    assert_eq!(loc_depth(db, where_), LOC_BUILD, "building_owner: {where_}");
+    first_character(db, where_)
+}
+
+/// `olympia/u.c:loc_hidden`.
+#[must_use]
+pub fn loc_hidden(db: &Db, n: i32) -> bool {
+    db.get(n)
+        .and_then(|b| b.loc.as_ref())
+        .is_some_and(|l| l.hidden != 0)
+}
+
+/// `olympia/storm.c:weather_here`: the summed strength of the storms of
+/// subkind `sk` over the province holding `where_`; 0 inside a building.
+#[must_use]
+pub fn weather_here(db: &Db, where_: i32, sk: Subkind) -> i32 {
+    if loc_depth(db, where_) == LOC_BUILD {
+        return 0;
+    }
+    let where_ = province(db, where_);
+    here_list(db, where_)
+        .into_iter()
+        .filter(|&i| db.kind(i) == Kind::STORM && db.subkind(i) == sk)
+        .map(|i| {
+            // storm_strength()
+            db.entity(i)
+                .misc
+                .as_ref()
+                .map_or(0, |m| i32::from(m.storm_str))
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

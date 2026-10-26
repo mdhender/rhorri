@@ -62,15 +62,15 @@ impl Game {
         not_ported("init_weather_views")?; // task 8 (storm.c)
         self.system.sysclock.turn_change();
 
-        not_ported("init_wait_list")?; // task 4 (input.c)
-        not_ported("init_collect_list")?; // task 4 (input.c)
-        not_ported("initial_command_load")?; // task 4 (input.c)
+        self.init_wait_list();
+        self.init_collect_list();
+        self.initial_command_load();
         self.queue_npc_orders()?;
         not_ported("ping_garrisons")?; // task 6 (garr.c)
         not_ported("check_token_units")?; // task 6 (npc.c), "temp fix" in C
 
-        not_ported("process_interrupted_units")?; // task 4 (input.c), day 0
-        not_ported("process_player_orders")?; // task 4 (input.c)
+        self.process_interrupted_units()?; // day 0
+        self.process_player_orders()?;
         not_ported("scan_char_item_lore")?; // task 6 (lore.c)
 
         stage("");
@@ -112,7 +112,7 @@ impl Game {
     }
 
     /// `olympia/day.c:touch_loc`.
-    fn touch_loc(&mut self, who: i32) {
+    pub(crate) fn touch_loc(&mut self, who: i32) {
         let where_ = subloc(&self.db, who);
         self.touch_loc_pl(player(&self.db, who), where_);
     }
@@ -166,15 +166,6 @@ impl Game {
             eprint!("\n   ");
         }
         eprint!("{}", char::from(c));
-    }
-
-    /// `olympia/input.c:daily_command_loop`: runs the day's commands.
-    /// Task 4: `auto_attack_flag = TRUE`, `start_phase`, `evening_phase`,
-    /// `clear_second_waits`.
-    fn daily_command_loop(&mut self) -> Phase {
-        not_ported("start_phase")?; // task 4 (input.c)
-        not_ported("evening_phase")?; // task 4 (input.c)
-        not_ported("clear_second_waits") // task 4 (input.c)
     }
 
     /// `olympia/day.c:daily_events`: the day's scheduled events. Task 7

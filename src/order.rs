@@ -8,7 +8,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
-use crate::cstr::atoi;
+use crate::cstr::{atoi, fuzzy_eq, i_str_eq, is_white};
 use crate::entity::{Db, Kind, OrderList};
 use crate::lines::LineReader;
 use crate::os::{make_dir, strerror};
@@ -33,6 +33,57 @@ pub fn queue_order(db: &mut Db, pl: i32, who: i32, s: &[u8]) {
     if list.len() < MAX_QUEUED {
         list.push(s.to_vec());
     }
+}
+
+/// `rp_order_head()`: unit `who`'s queue in player `pl`'s orders.
+fn rp_order_head(db: &Db, pl: i32, who: i32) -> Option<&OrderList> {
+    db.get(pl)?
+        .player
+        .as_deref()?
+        .orders
+        .iter()
+        .find(|o| o.unit == who)
+}
+
+/// `top_order()`: the next order queued for `who` in player `pl`'s orders.
+#[must_use]
+pub fn top_order(db: &Db, pl: i32, who: i32) -> Option<&[u8]> {
+    rp_order_head(db, pl, who)?.l.first().map(Vec::as_slice)
+}
+
+/// `is_stop_order()`: whether the order's first word is `stop`.
+///
+/// After the exact test, C checks the rest of the line, not the word, for
+/// a fuzzy match. The rest is empty or starts with white space, so it never
+/// matches, and `stpo` is not a stop order; kept as C has it.
+fn is_stop_order(s: &[u8]) -> bool {
+    let start = s.iter().position(|&c| !is_white(c)).unwrap_or(s.len());
+    let s = &s[start..];
+    let end = s.iter().position(|&c| is_white(c)).unwrap_or(s.len());
+    let (word, rest) = s.split_at(end);
+    i_str_eq(word, b"stop") || fuzzy_eq(rest, b"stop")
+}
+
+/// `stop_order()`: whether `who`'s next order is `stop`. A stop order must
+/// be first in the queue.
+#[must_use]
+pub fn stop_order(db: &Db, pl: i32, who: i32) -> bool {
+    top_order(db, pl, who).is_some_and(is_stop_order)
+}
+
+/// `pop_order()`: drops `who`'s next order.
+///
+/// # Panics
+///
+/// Panics if `who` has no order queued, as C asserts.
+pub fn pop_order(db: &mut Db, pl: i32, who: i32) {
+    let list = db
+        .get_mut(pl)
+        .and_then(|b| b.player.as_deref_mut())
+        .and_then(|p| p.orders.iter_mut().find(|o| o.unit == who))
+        .expect("pop_order: no order queue");
+    assert!(!list.l.is_empty(), "pop_order: no orders queued");
+    list.l.remove(0);
 }
 
 /// Loads every `orders/<player>` file (`load_orders()`).
@@ -116,6 +167,30 @@ fn save_player_orders(db: &Db, pl: i32, path: &Path) {
 mod tests {
     use super::*;
     use crate::entity::Subkind;
+
+    #[test]
+    fn stop_orders_are_read_like_c() {
+        assert!(is_stop_order(b"stop"));
+        assert!(is_stop_order(b"  STOP now"));
+        // The fuzzy test looks at the rest of the line, not the word.
+        assert!(!is_stop_order(b"stpo"));
+        assert!(!is_stop_order(b"x tsop"));
+        assert!(!is_stop_order(b"stopping"));
+    }
+
+    #[test]
+    fn top_and_pop_walk_a_units_queue() {
+        let mut db = Db::new();
+        db.alloc_box(500, Kind::PLAYER, Subkind::default());
+        assert_eq!(top_order(&db, 500, 1001), None);
+        assert_eq!(top_order(&db, 0, 1001), None);
+        queue_order(&mut db, 500, 1001, b"stop");
+        queue_order(&mut db, 500, 1001, b"move n");
+        assert!(stop_order(&db, 500, 1001));
+        pop_order(&mut db, 500, 1001);
+        assert_eq!(top_order(&db, 500, 1001), Some(&b"move n"[..]));
+        assert!(!stop_order(&db, 500, 1001));
+    }
 
     #[test]
     fn queue_order_groups_by_unit_and_caps_the_queue() {

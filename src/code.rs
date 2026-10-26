@@ -65,6 +65,66 @@ pub fn int_to_code(l: i32) -> String {
     l.to_string()
 }
 
+/// `letter_val()`: the index of `c` in `set`, or 0 if it isn't there.
+fn letter_val(c: u8, set: &[u8]) -> i32 {
+    set.iter().position(|&x| x == c).map_or(0, |i| i as i32)
+}
+
+/// `code_to_int()`: the entity number an entity code stands for, the
+/// inverse of [`int_to_code`]. A string of digits is read with `atoi`;
+/// anything else that isn't a code is 0.
+#[must_use]
+pub fn code_to_int(s: &[u8]) -> i32 {
+    let Some(&first) = s.first() else {
+        return 0;
+    };
+    if first.is_ascii_digit() {
+        return crate::cstr::atoi(s);
+    }
+    if !first.is_ascii_alphabetic() {
+        return 0;
+    }
+    let alpha = |i: usize| s[i].is_ascii_alphabetic();
+    let digit = |i: usize| s[i].is_ascii_digit();
+    let num = |i: usize| i32::from(s[i]) - i32::from(b'0');
+    let low = |i: usize| s[i].to_ascii_lowercase();
+    match s.len() {
+        3 if alpha(1) && digit(2) => {
+            // CCN
+            let a = i32::from(low(0)) - i32::from(b'a');
+            let b = i32::from(low(1)) - i32::from(b'a');
+            a * 260 + b * 10 + num(2) + 50000
+        }
+        3 if digit(1) && digit(2) => {
+            // CNN
+            letter_val(low(0), LETTERS2) * 100 + num(1) * 10 + num(2) + 56760
+        }
+        4 if alpha(1) && digit(2) && digit(3) => {
+            // CCNN
+            letter_val(low(0), LETTERS2) * 2000
+                + letter_val(low(1), LETTERS2) * 100
+                + num(2) * 10
+                + num(3)
+                + 10000
+        }
+        4 if digit(1) && digit(2) && digit(3) => {
+            // CNNN
+            letter_val(low(0), LETTERS2) * 1000 + num(1) * 100 + num(2) * 10 + num(3) + 59000
+        }
+        _ => 0,
+    }
+}
+
+/// `scode()`: [`code_to_int`], after one leading `[` or `(`.
+#[must_use]
+pub fn scode(s: &[u8]) -> i32 {
+    let s = match s.first() {
+        Some(b'[' | b'(') => &s[1..],
+        _ => s,
+    };
+    code_to_int(s)
+}
+
 /// `box_code()`: the entity's code in brackets, such as `[aa01]`.
 #[must_use]
 pub fn box_code(n: i32) -> Text {
@@ -162,6 +222,58 @@ pub fn just_name(db: &Db, n: i32) -> Text {
     box_code(n)
 }
 
+/// `printf("%.3d", n)`: at least three digits, after any sign.
+fn prec3(n: i32) -> String {
+    if n < 0 {
+        format!("-{:03}", n.unsigned_abs())
+    } else {
+        format!("{n:03}")
+    }
+}
+
+/// `olympia/u.c:comma_num`: `n` with commas between the thousands.
+///
+/// Each group of a negative number carries its own sign, as in C.
+#[must_use]
+pub fn comma_num(n: i32) -> String {
+    let further = n / 1_000_000_000;
+    let n = n % 1_000_000_000;
+    let millions = n / 1_000_000;
+    let n = n % 1_000_000;
+    let thousands = n / 1000;
+    let ones = n % 1000;
+
+    if further == 0 && millions == 0 && thousands == 0 {
+        format!("{ones}")
+    } else if further == 0 && millions == 0 {
+        format!("{thousands},{}", prec3(ones))
+    } else if further == 0 {
+        format!("{millions},{},{}", prec3(thousands), prec3(ones))
+    } else {
+        format!(
+            "{further},{},{},{}",
+            prec3(millions),
+            prec3(thousands),
+            prec3(ones)
+        )
+    }
+}
+
+/// `num_s`: the numbers spelled out.
+const NUM_S: [&str; 11] = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+];
+
+/// `olympia/u.c:nice_num`: `n` spelled out up to ten, else with commas.
+#[must_use]
+pub fn nice_num(n: i32) -> String {
+    if (0..=10).contains(&n) {
+        NUM_S[n as usize].to_owned()
+    } else {
+        comma_num(n)
+    }
+}
+
 /// Writes `msg` to standard error as bytes, as C's `fprintf(stderr, ...)`
 /// does with names that aren't UTF-8.
 pub fn eprint_bytes(msg: &[u8]) {
@@ -172,6 +284,37 @@ pub fn eprint_bytes(msg: &[u8]) {
 mod tests {
     use super::*;
     use crate::entity::Subkind;
+
+    #[test]
+    fn code_to_int_inverts_int_to_code() {
+        for n in [
+            10101, 13451, 49999, 50000, 50013, 56759, 56760, 57081, 58759, 59000, 78999,
+        ] {
+            assert_eq!(code_to_int(int_to_code(n).as_bytes()), n, "{n}");
+        }
+        assert_eq!(code_to_int(b"AA01"), 10001);
+        assert_eq!(code_to_int(b"1234x"), 1234);
+        assert_eq!(code_to_int(b"aa1x"), 0);
+        assert_eq!(code_to_int(b"-5"), 0);
+        assert_eq!(code_to_int(b""), 0);
+        assert_eq!(scode(b"[bs51"), 13451);
+        // Only the opening bracket is skipped.
+        assert_eq!(scode(b"[bs51]"), 0);
+        assert_eq!(scode(b"(57081)"), 57081);
+    }
+
+    #[test]
+    fn comma_num_and_nice_num_match_printf() {
+        assert_eq!(comma_num(0), "0");
+        assert_eq!(comma_num(1005), "1,005");
+        assert_eq!(comma_num(12_345_678), "12,345,678");
+        assert_eq!(comma_num(2_000_000_001), "2,000,000,001");
+        // Each group keeps its sign, and %.3d pads after it.
+        assert_eq!(comma_num(-1005), "-1,-005");
+        assert_eq!(nice_num(7), "seven");
+        assert_eq!(nice_num(11), "11");
+        assert_eq!(nice_num(-1), "-1");
+    }
 
     #[test]
     fn codes_follow_each_number_range() {
